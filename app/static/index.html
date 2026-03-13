@@ -17,41 +17,138 @@
         <a href="#projects">Projects</a>
         <a href="#assignments">Assignments</a>
         <a href="#timelines">Timelines</a>
+        <a href="/canvas">Canvas</a>
       </nav>
     </header>
 
     <main>
-      <section id="employees" class="card">
+      <section id="timelines" class="card">
         <div class="section-head">
-          <h2>Employees</h2>
-          <p>Capture each person, their home location, and their available capacity (1.0 = 100%).</p>
+          <h2>Quick Timelines</h2>
+          <p>Peek at utilization for a single employee or project.</p>
         </div>
-        <div class="layout">
-          <div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Location</th>
-                  <th>Capacity</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="employee-table"></tbody>
-            </table>
+        <div class="timelines">
+          <div class="panel">
+            <h3>Employee Schedule</h3>
+            <label>Employee<select id="schedule-employee"></select></label>
+            <ul id="employee-schedule" class="timeline"></ul>
           </div>
-          <form id="employee-form" class="panel">
-            <h3>Add / Update Employee</h3>
-            <input type="hidden" name="entity_id" id="employee-id" />
-            <label>Name<input name="name" required /></label>
-            <label>Role<input name="role" /></label>
-            <label>Location<input name="location" /></label>
-            <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" value="1" /></label>
-            <button type="submit">Save Employee</button>
-          </form>
+          <div class="panel">
+            <h3>Project Staffing</h3>
+            <label>Project<select id="schedule-project"></select></label>
+            <ul id="project-schedule" class="timeline"></ul>
+          </div>
         </div>
       </section>
+
+      <section id="utilization" class="card">
+        <div class="section-head">
+          <h2>Allocation watchdog</h2>
+          <p>Visualize peak load per employee, choose presets, or enter explicit date ranges. Bars &gt; 100% flag overallocations.</p>
+        </div>
+        <div class="chart-controls">
+          <label>Quick range
+            <select id="allocation-preset">
+              <option value="28">Next 4 weeks</option>
+              <option value="182">Next 6 months</option>
+              <option value="all">Show all</option>
+              <option value="custom">Custom range…</option>
+            </select>
+          </label>
+          <div class="range-group">
+            <label>Custom start<input type="date" id="allocation-start" /></label>
+            <label>Custom end<input type="date" id="allocation-end" /></label>
+            <button type="button" id="allocation-apply">Apply</button>
+          </div>
+        </div>
+        <div id="allocation-range-label" class="muted small-text"></div>
+        <div class="chart-wrapper">
+          <canvas id="allocation-chart" height="280"></canvas>
+          <div id="allocation-chart-empty" class="muted">Add people and assignments to see this graph.</div>
+        </div>
+      </section>
+
+      <div class="card-grid">
+        <section id="employees" class="card single-column">
+          <div class="section-head">
+            <h2>Employees</h2>
+            <p>Capture each person, their home location, and their available capacity (1.0 = 100%).</p>
+          </div>
+          <div class="layout">
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Location</th>
+                    <th>Capacity</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="employee-table"></tbody>
+              </table>
+            </div>
+            <form id="employee-form" class="panel">
+              <h3>Add / Update Employee</h3>
+              <input type="hidden" name="entity_id" id="employee-id" />
+              <label>Name<input name="name" required /></label>
+              <label>Role<input name="role" /></label>
+              <label>Location<input name="location" /></label>
+              <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" value="1" /></label>
+              <button type="submit">Save Employee</button>
+            </form>
+          </div>
+        </section>
+
+        <section id="assignments" class="card single-column">
+          <div class="section-head with-actions">
+            <div class="section-copy">
+              <h2>Assignments</h2>
+              <p>Time-phase people across projects with allocation percentages.</p>
+            </div>
+            <button type="button" id="assignment-export" class="ghost-button">Export CSV</button>
+          </div>
+          <div class="layout">
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Project</th>
+                    <th>Dates</th>
+                    <th>Allocation</th>
+                    <th>Notes</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="assignment-table"></tbody>
+              </table>
+            </div>
+            <form id="assignment-form" class="panel">
+              <h3>Create Assignment</h3>
+              <input type="hidden" name="entity_id" id="assignment-id" />
+              <label>Employee<select name="employee_id" id="assignment-employee" required></select></label>
+              <label>Project<select name="project_id" id="assignment-project" required></select></label>
+              <label>Start Date<input type="date" name="start_date" required /></label>
+              <label>End Date<input type="date" name="end_date" required /></label>
+              <label>Allocation (%)<input type="number" name="allocation" min="1" max="100" value="100" required /></label>
+              <label>Notes<textarea name="notes" rows="2"></textarea></label>
+              <button type="submit">Save Assignment</button>
+            </form>
+          </div>
+          <div class="panel assignment-graph-panel">
+            <div class="assignment-graph-header">
+              <h3>Assignment graph</h3>
+              <p class="muted small-text">Employees appear on the left, projects on the right; line thickness follows allocation.</p>
+            </div>
+            <div class="assignment-graph">
+              <div id="assignment-graph-empty" class="muted">Add assignments to see the relationship graph.</div>
+              <div id="assignment-graph"></div>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <section id="projects" class="card">
         <div class="section-head">
@@ -81,71 +178,6 @@
             <label>End Date<input type="date" name="end_date" /></label>
             <button type="submit">Save Project</button>
           </form>
-        </div>
-      </section>
-
-      <section id="assignments" class="card">
-        <div class="section-head">
-          <h2>Assignments</h2>
-          <p>Time-phase people across projects with allocation percentages.</p>
-        </div>
-        <div class="layout">
-          <div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Employee</th>
-                  <th>Project</th>
-                  <th>Dates</th>
-                  <th>Allocation</th>
-                  <th>Notes</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="assignment-table"></tbody>
-            </table>
-          </div>
-          <form id="assignment-form" class="panel">
-            <h3>Create Assignment</h3>
-            <input type="hidden" name="entity_id" id="assignment-id" />
-            <label>Employee<select name="employee_id" id="assignment-employee" required></select></label>
-            <label>Project<select name="project_id" id="assignment-project" required></select></label>
-            <label>Start Date<input type="date" name="start_date" required /></label>
-            <label>End Date<input type="date" name="end_date" required /></label>
-            <label>Allocation (%)<input type="number" name="allocation" min="1" max="100" value="100" required /></label>
-            <label>Notes<textarea name="notes" rows="2"></textarea></label>
-            <button type="submit">Save Assignment</button>
-          </form>
-        </div>
-      </section>
-
-      <section id="utilization" class="card">
-        <div class="section-head">
-          <h2>Allocation watchdog</h2>
-          <p>Peak load per employee across the next 4 weeks. Bars &gt; 100% flag overallocations.</p>
-        </div>
-        <div class="chart-wrapper">
-          <canvas id="allocation-chart" height="280"></canvas>
-          <div id="allocation-chart-empty" class="muted">Add people and assignments to see this graph.</div>
-        </div>
-      </section>
-
-      <section id="timelines" class="card">
-        <div class="section-head">
-          <h2>Quick Timelines</h2>
-          <p>Peek at utilization for a single employee or project.</p>
-        </div>
-        <div class="timelines">
-          <div class="panel">
-            <h3>Employee Schedule</h3>
-            <label>Employee<select id="schedule-employee"></select></label>
-            <ul id="employee-schedule" class="timeline"></ul>
-          </div>
-          <div class="panel">
-            <h3>Project Staffing</h3>
-            <label>Project<select id="schedule-project"></select></label>
-            <ul id="project-schedule" class="timeline"></ul>
-          </div>
         </div>
       </section>
     </main>

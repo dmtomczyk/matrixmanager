@@ -7,7 +7,10 @@ A lightweight resource planning MVP that lets you keep track of employees, proje
 - **Employees** – CRUD fields for name, role, location, and available capacity (1.0 = 100%).
 - **Projects** – CRUD for initiatives, including optional description + start/end dates.
 - **Assignments** – Capture who is staffed on what with `start_date`, `end_date`, and allocation (in %). Editing + deletion supported.
+- **Assignment graph + CSV** – Visual node graph links employees to projects, and an Export button produces a CSV with employee, project, date, and allocation columns.
+- **Canvas view** – A dedicated `/canvas` page gives you a pan-able spatial canvas with per-project assignment boxes and context-menu shortcuts for creating work.
 - **Timelines** – Quick schedule views per employee or per project powered by `/schedule/*` endpoints.
+- **Allocation watchdog** – A Chart.js line chart overlays time-phased allocation vs. capacity (choose presets or custom ranges) and highlights >100% overloads.
 - **REST API** – FastAPI automatically exposes OpenAPI docs at `/docs` for programmatic integrations.
 - **SQLite persistence** – Default database lives in `matrixmanager/matrix.db`, making it trivial to back up or inspect.
 

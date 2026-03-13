@@ -145,6 +145,12 @@ def serve_index() -> str:
     return index_path.read_text(encoding="utf-8")
 
 
+@app.get("/canvas", response_class=HTMLResponse)
+def serve_canvas() -> str:
+    canvas_path = STATIC_DIR / "canvas.html"
+    return canvas_path.read_text(encoding="utf-8")
+
+
 # Employee routes
 @app.get("/employees", response_model=List[EmployeeRead])
 def list_employees(session: Session = Depends(get_session)):
