@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Generator, List, Optional
+from typing import Dict, Generator, List, Optional, Set
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,11 +49,13 @@ class EmployeeBase(SQLModel):
     role: Optional[str] = None
     location: Optional[str] = None
     capacity: float = 1.0
+    manager_id: Optional[int] = None
 
 
 class Employee(EmployeeBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     organization_id: Optional[int] = Field(default=None, foreign_key="organization.id")
+    manager_id: Optional[int] = Field(default=None, foreign_key="employee.id")
 
 
 class EmployeeCreate(EmployeeBase):
@@ -64,6 +66,8 @@ class EmployeeRead(EmployeeBase):
     id: int
     organization_id: int
     organization_name: Optional[str] = None
+    manager_name: Optional[str] = None
+    direct_report_count: int = 0
 
 
 class EmployeeUpdate(SQLModel):
@@ -72,6 +76,7 @@ class EmployeeUpdate(SQLModel):
     location: Optional[str] = None
     capacity: Optional[float] = None
     organization_id: Optional[int] = None
+    manager_id: Optional[int] = None
 
 
 class ProjectBase(SQLModel):
@@ -151,6 +156,14 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
 
 
+def run_migrations() -> None:
+    with engine.begin() as connection:
+        columns = connection.exec_driver_sql("PRAGMA table_info(employee)").fetchall()
+        column_names = {row[1] for row in columns}
+        if "manager_id" not in column_names:
+            connection.exec_driver_sql("ALTER TABLE employee ADD COLUMN manager_id INTEGER")
+
+
 def get_session() -> Generator[Session, None, None]:
     with Session(engine) as session:
         yield session
@@ -160,6 +173,7 @@ def get_session() -> Generator[Session, None, None]:
 def on_startup() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     create_db_and_tables()
+    run_migrations()
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -239,9 +253,7 @@ def list_employees(session: Session = Depends(get_session)):
 
 @app.post("/employees", response_model=EmployeeRead, status_code=201)
 def create_employee(employee: EmployeeCreate, session: Session = Depends(get_session)):
-    if employee.capacity <= 0:
-        raise HTTPException(status_code=400, detail="Capacity must be greater than zero")
-    ensure_organization(session, employee.organization_id)
+    validate_employee_payload(session, employee.capacity, employee.organization_id, employee.manager_id)
     db_employee = Employee.from_orm(employee)
     session.add(db_employee)
     session.commit()
@@ -263,8 +275,10 @@ def update_employee(employee_id: int, update: EmployeeUpdate, session: Session =
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     employee_data = update.dict(exclude_unset=True)
-    if "organization_id" in employee_data and employee_data["organization_id"] is not None:
-        ensure_organization(session, employee_data["organization_id"])
+    next_capacity = employee_data.get("capacity", employee.capacity)
+    next_org_id = employee_data.get("organization_id", employee.organization_id)
+    next_manager_id = employee_data.get("manager_id", employee.manager_id)
+    validate_employee_payload(session, next_capacity, next_org_id, next_manager_id, employee_id=employee_id)
     for key, value in employee_data.items():
         setattr(employee, key, value)
     session.add(employee)
@@ -281,6 +295,10 @@ def delete_employee(employee_id: int, session: Session = Depends(get_session)):
     assignments = session.exec(select(Assignment).where(Assignment.employee_id == employee_id)).all()
     for assignment in assignments:
         session.delete(assignment)
+    direct_reports = session.exec(select(Employee).where(Employee.manager_id == employee_id)).all()
+    for report in direct_reports:
+        report.manager_id = None
+        session.add(report)
     session.delete(employee)
     session.commit()
 
@@ -315,7 +333,7 @@ def update_project(project_id: int, update: ProjectUpdate, session: Session = De
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    validate_dates(update.start_date, update.end_date)
+    validate_dates(update.start_date, project.end_date if update.end_date is None else update.end_date)
     project_data = update.dict(exclude_unset=True)
     for key, value in project_data.items():
         setattr(project, key, value)
@@ -365,11 +383,67 @@ def ensure_organization(session: Session, organization_id: int) -> Organization:
     return organization
 
 
+def validate_employee_payload(
+    session: Session,
+    capacity: Optional[float],
+    organization_id: Optional[int],
+    manager_id: Optional[int],
+    employee_id: Optional[int] = None,
+) -> None:
+    if capacity is None or capacity <= 0:
+        raise HTTPException(status_code=400, detail="Capacity must be greater than zero")
+    if organization_id is None:
+        raise HTTPException(status_code=400, detail="Organization is required")
+    ensure_organization(session, organization_id)
+    if manager_id is not None:
+        ensure_valid_manager(session, employee_id=employee_id, manager_id=manager_id)
+
+
+def ensure_valid_manager(session: Session, employee_id: Optional[int], manager_id: int) -> Employee:
+    manager = ensure_employee(session, manager_id)
+    if employee_id is not None and manager_id == employee_id:
+        raise HTTPException(status_code=400, detail="Employee cannot manage themselves")
+    if employee_id is not None and creates_manager_cycle(session, employee_id, manager_id):
+        raise HTTPException(status_code=400, detail="Manager relationship creates a cycle")
+    return manager
+
+
+def creates_manager_cycle(session: Session, employee_id: int, manager_id: int) -> bool:
+    seen: Set[int] = set()
+    current_id: Optional[int] = manager_id
+    while current_id is not None:
+        if current_id == employee_id:
+            return True
+        if current_id in seen:
+            return True
+        seen.add(current_id)
+        current = session.get(Employee, current_id)
+        if not current:
+            return False
+        current_id = current.manager_id
+    return False
+
+
+def build_direct_report_counts(session: Session) -> Dict[int, int]:
+    counts: Dict[int, int] = {}
+    employees = session.exec(select(Employee)).all()
+    for employee in employees:
+        if employee.manager_id is not None:
+            counts[employee.manager_id] = counts.get(employee.manager_id, 0) + 1
+    return counts
+
+
 def serialize_employee(session: Session, employee: Employee) -> EmployeeRead:
     organization_name = None
+    manager_name = None
+    direct_report_count = 0
     if employee.organization_id is not None:
         organization = session.get(Organization, employee.organization_id)
         organization_name = organization.name if organization else None
+    if employee.manager_id is not None:
+        manager = session.get(Employee, employee.manager_id)
+        manager_name = manager.name if manager else None
+    direct_report_count = len(session.exec(select(Employee).where(Employee.manager_id == employee.id)).all())
     return EmployeeRead(
         id=employee.id,
         name=employee.name,
@@ -378,6 +452,9 @@ def serialize_employee(session: Session, employee: Employee) -> EmployeeRead:
         capacity=employee.capacity,
         organization_id=employee.organization_id,
         organization_name=organization_name,
+        manager_id=employee.manager_id,
+        manager_name=manager_name,
+        direct_report_count=direct_report_count,
     )
 
 

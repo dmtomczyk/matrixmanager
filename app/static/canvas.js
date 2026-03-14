@@ -21,6 +21,7 @@ const state = {
   employees: [],
   projects: [],
   assignments: [],
+  expandedManagers: new Set(),
 };
 
 let pan = { x: 0, y: 0 };
@@ -112,11 +113,24 @@ const closeModal = () => {
   }
 };
 
-
-const buildOptions = (items, selectedId) =>
-  items
-    .map((item) => `<option value="${item.id}" ${item.id === selectedId ? 'selected' : ''}>${item.name}</option>`)
+const buildOptions = (items, selectedId, placeholder = null) => {
+  const options = items
+    .map((item) => `<option value="${item.id}" ${item.id === selectedId ? 'selected' : ''}>${escapeHtml(item.name)}</option>`)
     .join('');
+  return placeholder ? `<option value="">${placeholder}</option>${options}` : options;
+};
+
+const buildManagerOptions = (selectedId = null, currentEmployeeId = null) => {
+  const options = state.employees
+    .filter((emp) => emp.id !== currentEmployeeId)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((employee) => {
+      const suffix = employee.organization_name ? ` · ${employee.organization_name}` : '';
+      return `<option value="${employee.id}" ${employee.id === selectedId ? 'selected' : ''}>${escapeHtml(employee.name + suffix)}</option>`;
+    })
+    .join('');
+  return `<option value="">No manager</option>${options}`;
+};
 
 const openProjectModal = (projectId = null) => {
   const editing = Boolean(projectId);
@@ -128,8 +142,8 @@ const openProjectModal = (projectId = null) => {
   modalBody.innerHTML = `
     <h3>${editing ? 'Edit project' : 'Create project'}</h3>
     <form id="project-modal-form">
-      <label>Name<input name="name" value="${project?.name || ''}" required /></label>
-      <label>Description<textarea name="description" rows="2">${project?.description || ''}</textarea></label>
+      <label>Name<input name="name" value="${escapeHtml(project?.name || '')}" required /></label>
+      <label>Description<textarea name="description" rows="2">${escapeHtml(project?.description || '')}</textarea></label>
       <label>Start Date<input type="date" name="start_date" value="${project?.start_date || ''}" /></label>
       <label>End Date<input type="date" name="end_date" value="${project?.end_date || ''}" /></label>
       <button type="submit">${editing ? 'Save changes' : 'Create project'}</button>
@@ -228,8 +242,7 @@ const openProjectEditModal = (projectId = null) => {
       await apiFetch(`/projects/${currentProjectId}`, { method: 'PUT', body: JSON.stringify(payload) });
       showToast('Project updated');
       closeModal();
-      await loadProjects();
-      await loadAssignments();
+      await loadData();
     } catch (err) {
       alert(err.message);
     }
@@ -255,6 +268,7 @@ const openEmployeeModal = (employeeId = null) => {
     <form id="employee-modal-form">
       <label>Name<input name="name" required /></label>
       <label>Role<input name="role" /></label>
+      <label>Manager<select name="manager_id">${buildManagerOptions(null, currentEmployeeId)}</select></label>
       <label>Location<input name="location" /></label>
       <label>Capacity<input type="number" name="capacity" step="0.1" min="0.1" required /></label>
       <button type="submit">Save changes</button>
@@ -264,6 +278,7 @@ const openEmployeeModal = (employeeId = null) => {
   const form = document.querySelector('#employee-modal-form');
   const populateFields = (id) => {
     const employee = state.employees.find((emp) => emp.id === id);
+    form.elements.manager_id.innerHTML = buildManagerOptions(employee?.manager_id || null, id);
     if (!employee) {
       form.reset();
       currentEmployeeId = null;
@@ -274,6 +289,7 @@ const openEmployeeModal = (employeeId = null) => {
     form.elements.role.value = employee.role || '';
     form.elements.location.value = employee.location || '';
     form.elements.capacity.value = employee.capacity || 1;
+    form.elements.manager_id.value = employee.manager_id || '';
   };
   picker.addEventListener('change', (event) => {
     const nextId = Number(event.target.value);
@@ -293,11 +309,13 @@ const openEmployeeModal = (employeeId = null) => {
       return;
     }
     const formData = new FormData(form);
+    const managerId = formData.get('manager_id');
     const payload = {
       name: formData.get('name').trim(),
       role: formData.get('role').trim() || null,
       location: formData.get('location').trim() || null,
       capacity: Number(formData.get('capacity')) || 1,
+      manager_id: managerId ? Number(managerId) : null,
     };
     try {
       await apiFetch(`/employees/${currentEmployeeId}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -308,6 +326,73 @@ const openEmployeeModal = (employeeId = null) => {
       alert(err.message);
     }
   });
+};
+
+const buildHierarchy = (employees) => {
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+  const directReports = new Map();
+  employees.forEach((employee) => directReports.set(employee.id, []));
+  const roots = [];
+
+  employees.forEach((employee) => {
+    if (employee.manager_id && byId.has(employee.manager_id)) {
+      directReports.get(employee.manager_id).push(employee);
+    } else {
+      roots.push(employee);
+    }
+  });
+
+  const sortEmployees = (list) => list.sort((a, b) => a.name.localeCompare(b.name));
+  sortEmployees(roots);
+  directReports.forEach((list) => sortEmployees(list));
+
+  return { roots, directReports };
+};
+
+const createResourceItem = (employee, options = {}) => {
+  const { nested = false, hasChildren = false, expanded = false } = options;
+  const item = document.createElement('div');
+  item.className = `resource-item${nested ? ' resource-item-nested' : ''}${hasChildren ? ' resource-item-manager' : ''}`;
+  item.setAttribute('draggable', 'true');
+  item.dataset.dragType = 'employee';
+  item.dataset.id = employee.id;
+
+  const infoRow = document.createElement('div');
+  infoRow.className = 'resource-row';
+
+  const left = document.createElement('div');
+  left.className = 'resource-left';
+
+  if (hasChildren) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'hierarchy-toggle';
+    toggle.dataset.managerToggle = employee.id;
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    toggle.textContent = expanded ? '▾' : '▸';
+    left.appendChild(toggle);
+  } else {
+    const spacer = document.createElement('span');
+    spacer.className = 'hierarchy-spacer';
+    spacer.textContent = '•';
+    left.appendChild(spacer);
+  }
+
+  const details = document.createElement('div');
+  details.className = 'resource-details';
+  const subtitleParts = [employee.role, employee.organization_name].filter(Boolean);
+  if (employee.manager_name && !nested) subtitleParts.push(`Reports to ${employee.manager_name}`);
+  if (hasChildren) subtitleParts.push(`${employee.direct_report_count || 0} direct report${employee.direct_report_count === 1 ? '' : 's'}`);
+  details.innerHTML = `<strong>${escapeHtml(employee.name)}</strong><span class="resource-meta">${escapeHtml(subtitleParts.join(' • '))}</span>`;
+  left.appendChild(details);
+
+  const capacity = document.createElement('span');
+  capacity.className = 'resource-meta';
+  capacity.textContent = `${Math.round((employee.capacity || 1) * 100)}%`;
+
+  infoRow.append(left, capacity);
+  item.appendChild(infoRow);
+  return item;
 };
 
 const renderResources = () => {
@@ -328,7 +413,7 @@ const renderResources = () => {
       .concat(
         Array.from(orgMap.entries())
           .sort((a, b) => a[1].localeCompare(b[1]))
-          .map(([value, label]) => `<option value="${value}">${label}</option>`)
+          .map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`)
       )
       .join('');
     canvasOrgFilter.innerHTML = options;
@@ -348,22 +433,18 @@ const renderResources = () => {
     resourceList.appendChild(empty);
     return;
   }
-  filtered.forEach((employee) => {
-    const item = document.createElement('div');
-    item.className = 'resource-item';
-    item.setAttribute('draggable', 'true');
-    item.dataset.dragType = 'employee';
-    item.dataset.id = employee.id;
-    const details = document.createElement('div');
-    details.className = 'resource-details';
-    const subtitleParts = [employee.role, employee.organization_name].filter(Boolean);
-    const subtitle = subtitleParts.join(' • ');
-    details.innerHTML = `<strong>${escapeHtml(employee.name)}</strong><span class="resource-meta">${escapeHtml(subtitle)}</span>`;
-    const capacity = document.createElement('span');
-    capacity.className = 'resource-meta';
-    capacity.textContent = `${Math.round((employee.capacity || 1) * 100)}%`;
-    item.append(details, capacity);
-    resourceList.appendChild(item);
+
+  const { roots, directReports } = buildHierarchy(filtered);
+  roots.forEach((employee) => {
+    const children = directReports.get(employee.id) || [];
+    const hasChildren = children.length > 0;
+    const expanded = hasChildren && state.expandedManagers.has(employee.id);
+    resourceList.appendChild(createResourceItem(employee, { hasChildren, expanded }));
+    if (expanded) {
+      children.forEach((report) => {
+        resourceList.appendChild(createResourceItem(report, { nested: true, hasChildren: false }));
+      });
+    }
   });
 };
 
@@ -528,8 +609,6 @@ const renderCanvas = () => {
   const currentWeek = getCurrentWeekRange();
   const weekStartValue = currentWeek?.weekStartValue ?? toDateValue(Date.now());
   const weekEndValue = currentWeek?.weekEndValue ?? weekStartValue;
-  const employeeColumnX = 60;
-  const employeeSpacing = 110;
   const baseX = 280;
   const baseY = 80;
   const colWidth = 320;
@@ -640,6 +719,8 @@ const loadData = async () => {
     state.employees = employees;
     state.projects = projects;
     state.assignments = assignments;
+    const managerIds = new Set(state.employees.filter((employee) => employee.direct_report_count > 0).map((employee) => employee.id));
+    state.expandedManagers = new Set([...state.expandedManagers].filter((id) => managerIds.has(id)));
     renderResources();
     renderCanvas();
   } catch (err) {
@@ -770,6 +851,10 @@ const handlePointerUp = (event) => {
 const handleDragStart = (event) => {
   const node = event.target.closest('[data-drag-type="employee"]');
   if (!node) return;
+  if (event.target.closest('[data-manager-toggle]')) {
+    event.preventDefault();
+    return;
+  }
   dragEmployeeId = Number(node.dataset.id);
   event.dataTransfer.effectAllowed = 'copy';
   event.dataTransfer.setData('text/plain', String(dragEmployeeId));
@@ -815,6 +900,18 @@ const handleDrop = (event) => {
   openAssignmentModal({ employeeId, projectId });
 };
 
+const handleResourceClick = (event) => {
+  const toggle = event.target.closest('[data-manager-toggle]');
+  if (!toggle) return;
+  const managerId = Number(toggle.dataset.managerToggle);
+  if (!managerId) return;
+  if (state.expandedManagers.has(managerId)) {
+    state.expandedManagers.delete(managerId);
+  } else {
+    state.expandedManagers.add(managerId);
+  }
+  renderResources();
+};
 
 const init = () => {
   applyTransform();
@@ -833,6 +930,7 @@ const init = () => {
   canvasStage.addEventListener('dragenter', handleDragEnter);
   canvasStage.addEventListener('dragleave', handleDragLeave);
   canvasStage.addEventListener('drop', handleDrop);
+  resourceList?.addEventListener('click', handleResourceClick);
 
   allocationUnitsSelect?.addEventListener('change', (event) => {
     allocationUnits = event.target.value;

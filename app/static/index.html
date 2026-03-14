@@ -116,6 +116,7 @@
                     <th>Name</th>
                     <th>Role</th>
                     <th>Organization</th>
+                    <th>Manager</th>
                     <th>Location</th>
                     <th>Capacity</th>
                     <th></th>
@@ -130,6 +131,7 @@
               <label>Name<input name="name" required /></label>
               <label>Role<input name="role" /></label>
               <label>Organization<select name="organization_id" id="employee-organization" required></select></label>
+              <label>Manager<select name="manager_id" id="employee-manager"></select></label>
               <label>Location<input name="location" /></label>
               <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" value="1" /></label>
               <button type="submit">Save Employee</button>

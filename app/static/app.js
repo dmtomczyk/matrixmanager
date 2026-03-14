@@ -1,6 +1,7 @@
 const organizationTable = document.querySelector('#organization-table');
 const organizationForm = document.querySelector('#organization-form');
 const employeeOrganizationSelect = document.querySelector('#employee-organization');
+const employeeManagerSelect = document.querySelector('#employee-manager');
 const employeeTable = document.querySelector('#employee-table');
 const projectTable = document.querySelector('#project-table');
 const assignmentTable = document.querySelector('#assignment-table');
@@ -42,6 +43,15 @@ let assignments = [];
 
 const formatISODate = (date) => date.toISOString().split('T')[0];
 
+const escapeHtml = (value = '') =>
+  String(value).replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[char] || char);
+
 const apiFetch = async (url, options = {}) => {
   const opts = {
     headers: { 'Content-Type': 'application/json' },
@@ -76,10 +86,11 @@ const renderEmployees = () => {
     .map(
       (emp) => `
       <tr>
-        <td>${emp.name}</td>
-        <td>${emp.role || ''}</td>
-        <td>${emp.organization_name || ''}</td>
-        <td>${emp.location || ''}</td>
+        <td>${escapeHtml(emp.name)}</td>
+        <td>${escapeHtml(emp.role || '')}</td>
+        <td>${escapeHtml(emp.organization_name || '')}</td>
+        <td>${escapeHtml(emp.manager_name || '—')}</td>
+        <td>${escapeHtml(emp.location || '')}</td>
         <td>${emp.capacity?.toFixed(1) || '1.0'}</td>
         <td class="actions">
           <button type="button" data-action="edit-employee" data-id="${emp.id}">Edit</button>
@@ -88,7 +99,7 @@ const renderEmployees = () => {
       </tr>`
     )
     .join('');
-  employeeTable.innerHTML = rows || '<tr><td colspan="6">No employees match this filter.</td></tr>';
+  employeeTable.innerHTML = rows || '<tr><td colspan="7">No employees match this filter.</td></tr>';
 };
 
 const renderOrganizations = () => {
@@ -103,8 +114,8 @@ const renderOrganizations = () => {
       const count = headcounts[org.id] || 0;
       return `
         <tr>
-          <td>${org.name}</td>
-          <td>${org.description || ''}</td>
+          <td>${escapeHtml(org.name)}</td>
+          <td>${escapeHtml(org.description || '')}</td>
           <td>${count}</td>
           <td class="actions">
             <button type="button" data-action="edit-organization" data-id="${org.id}">Edit</button>
@@ -118,7 +129,7 @@ const renderOrganizations = () => {
 const updateOrganizationSelect = () => {
   if (employeeOrganizationSelect) {
     const placeholder = '<option value="">Select organization</option>';
-    const options = organizations.map((org) => `<option value="${org.id}">${org.name}</option>`).join('');
+    const options = organizations.map((org) => `<option value="${org.id}">${escapeHtml(org.name)}</option>`).join('');
     const current = employeeOrganizationSelect.value;
     employeeOrganizationSelect.innerHTML = placeholder + options;
     if (current && organizations.some((org) => String(org.id) === current)) {
@@ -130,7 +141,7 @@ const updateOrganizationSelect = () => {
   if (employeeOrgFilter) {
     const previous = employeeOrgFilter.value;
     const filterOptions = ['<option value="">All organizations</option>']
-      .concat(organizations.map((org) => `<option value="${org.id}">${org.name}</option>`))
+      .concat(organizations.map((org) => `<option value="${org.id}">${escapeHtml(org.name)}</option>`))
       .join('');
     employeeOrgFilter.innerHTML = filterOptions;
     if (previous && organizations.some((org) => String(org.id) === previous)) {
@@ -141,15 +152,36 @@ const updateOrganizationSelect = () => {
   }
 };
 
+const updateManagerSelect = (selectedId = '', currentEmployeeId = null) => {
+  if (!employeeManagerSelect) return;
+  const options = ['<option value="">No manager</option>']
+    .concat(
+      employees
+        .filter((emp) => emp.id !== currentEmployeeId)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((emp) => {
+          const suffix = emp.organization_name ? ` · ${emp.organization_name}` : '';
+          return `<option value="${emp.id}">${escapeHtml(emp.name + suffix)}</option>`;
+        })
+    )
+    .join('');
+  employeeManagerSelect.innerHTML = options;
+  if (selectedId && employees.some((emp) => String(emp.id) === String(selectedId) && emp.id !== currentEmployeeId)) {
+    employeeManagerSelect.value = String(selectedId);
+  } else {
+    employeeManagerSelect.value = '';
+  }
+};
+
 const renderProjects = () => {
   projectTable.innerHTML = projects
     .map((proj) => {
       const dates = [proj.start_date, proj.end_date].filter(Boolean).join(' → ');
       return `
         <tr>
-          <td>${proj.name}</td>
-          <td>${dates || '—'}</td>
-          <td>${proj.description || ''}</td>
+          <td>${escapeHtml(proj.name)}</td>
+          <td>${escapeHtml(dates || '—')}</td>
+          <td>${escapeHtml(proj.description || '')}</td>
           <td class="actions">
             <button type="button" data-action="edit-project" data-id="${proj.id}">Edit</button>
             <button type="button" class="secondary" data-action="delete-project" data-id="${proj.id}">Delete</button>
@@ -165,11 +197,11 @@ const renderAssignments = () => {
       const dates = `${asg.start_date} → ${asg.end_date}`;
       return `
         <tr>
-          <td>${asg.employee_name || asg.employee_id}</td>
-          <td>${asg.project_name || asg.project_id}</td>
-          <td>${dates}</td>
+          <td>${escapeHtml(asg.employee_name || String(asg.employee_id))}</td>
+          <td>${escapeHtml(asg.project_name || String(asg.project_id))}</td>
+          <td>${escapeHtml(dates)}</td>
           <td><span class="badge">${Math.round(asg.allocation * 100)}%</span></td>
-          <td>${asg.notes || ''}</td>
+          <td>${escapeHtml(asg.notes || '')}</td>
           <td class="actions">
             <button type="button" data-action="edit-assignment" data-id="${asg.id}">Edit</button>
             <button type="button" class="secondary" data-action="delete-assignment" data-id="${asg.id}">Delete</button>
@@ -182,7 +214,7 @@ const renderAssignments = () => {
 const updateSelectOptions = () => {
   const buildOptions = (items, placeholder) =>
     [`<option value="">${placeholder}</option>`]
-      .concat(items.map((item) => `<option value="${item.id}">${item.name}</option>`))
+      .concat(items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`))
       .join('');
 
   const employeeOptions = buildOptions(employees, 'Select employee');
@@ -203,9 +235,9 @@ const renderScheduleList = (items, container, labelKey = 'project_name') => {
     .map(
       (item) => `
       <li>
-        <strong>${item[labelKey] || ''}</strong>
-        <div class="subtitle">${item.start_date} → ${item.end_date} · ${Math.round(item.allocation * 100)}%</div>
-        <div class="subtitle">${item.notes || ''}</div>
+        <strong>${escapeHtml(item[labelKey] || '')}</strong>
+        <div class="subtitle">${escapeHtml(item.start_date)} → ${escapeHtml(item.end_date)} · ${Math.round(item.allocation * 100)}%</div>
+        <div class="subtitle">${escapeHtml(item.notes || '')}</div>
       </li>`
     )
     .join('');
@@ -289,7 +321,7 @@ const renderAssignmentGraph = () => {
     .map(
       ({ employeeNode, projectNode, percent, isOver }) => `
         <line x1="${employeeNode.x + 18}" y1="${employeeNode.y}" x2="${projectNode.x - 18}" y2="${projectNode.y}" stroke="${isOver ? '#ef4444' : '#94a3b8'}" stroke-width="${Math.max(2, percent / 25)}" stroke-linecap="round">
-          <title>${employeeNode.name} → ${projectNode.name} (${percent}%)</title>
+          <title>${escapeHtml(employeeNode.name)} → ${escapeHtml(projectNode.name)} (${percent}%)</title>
         </line>`
     )
     .join('');
@@ -298,7 +330,7 @@ const renderAssignmentGraph = () => {
       (node) => `
         <g class="node employee">
           <circle cx="${node.x}" cy="${node.y}" r="18"></circle>
-          <text x="${node.x - 28}" y="${node.y + 4}" text-anchor="end">${node.name}</text>
+          <text x="${node.x - 28}" y="${node.y + 4}" text-anchor="end">${escapeHtml(node.name)}</text>
         </g>`
     )
     .join('');
@@ -307,7 +339,7 @@ const renderAssignmentGraph = () => {
       (node) => `
         <g class="node project">
           <circle cx="${node.x}" cy="${node.y}" r="18"></circle>
-          <text x="${node.x + 28}" y="${node.y + 4}" text-anchor="start">${node.name}</text>
+          <text x="${node.x + 28}" y="${node.y + 4}" text-anchor="start">${escapeHtml(node.name)}</text>
         </g>`
     )
     .join('');
@@ -589,6 +621,7 @@ const loadEmployees = async () => {
   renderEmployees();
   renderOrganizations();
   updateSelectOptions();
+  updateManagerSelect(employeeManagerSelect?.value || '');
 };
 
 const loadProjects = async () => {
@@ -614,12 +647,14 @@ const handleEmployeeSubmit = async (event) => {
     alert('Select an organization for this employee.');
     return;
   }
+  const managerIdRaw = formData.get('manager_id');
   const payload = {
     name: formData.get('name').trim(),
     role: formData.get('role').trim() || null,
     location: formData.get('location').trim() || null,
     capacity: Number(formData.get('capacity')) || 1,
     organization_id: organizationId,
+    manager_id: managerIdRaw ? Number(managerIdRaw) : null,
   };
   const id = formData.get('entity_id');
   try {
@@ -631,6 +666,7 @@ const handleEmployeeSubmit = async (event) => {
       showToast('Employee added');
     }
     resetForm(employeeForm, 'Save Employee');
+    updateManagerSelect();
     await loadEmployees();
     await loadAssignments();
   } catch (err) {
@@ -755,7 +791,7 @@ const tableClickHandler = (event) => {
 };
 
 const deleteEmployee = async (id) => {
-  if (!confirm('Delete this employee and related assignments?')) return;
+  if (!confirm('Delete this employee and related assignments? Direct reports will become unassigned.')) return;
   try {
     await apiFetch(`/employees/${id}`, { method: 'DELETE' });
     await loadEmployees();
@@ -797,6 +833,7 @@ const populateEmployeeForm = (id) => {
   if (employeeOrganizationSelect) {
     employeeOrganizationSelect.value = employee.organization_id || '';
   }
+  updateManagerSelect(employee.manager_id || '', employee.id);
   employeeForm.location.value = employee.location || '';
   employeeForm.capacity.value = employee.capacity || 1;
   employeeForm.querySelector('input[name="entity_id"]').value = employee.id;
@@ -876,6 +913,7 @@ const init = async () => {
   await loadAssignments();
   applyProjectDefaults();
   applyAssignmentDefaults();
+  updateManagerSelect();
 };
 
 init();
