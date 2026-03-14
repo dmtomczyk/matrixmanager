@@ -3,6 +3,7 @@ const organizationForm = document.querySelector('#organization-form');
 const employeeOrganizationSelect = document.querySelector('#employee-organization');
 const employeeManagerSelect = document.querySelector('#employee-manager');
 const employeeTypeSelect = document.querySelector('#employee-type');
+const employeeManagerHelp = document.querySelector('#employee-manager-help');
 const employeeTable = document.querySelector('#employee-table');
 const projectTable = document.querySelector('#project-table');
 const assignmentTable = document.querySelector('#assignment-table');
@@ -73,18 +74,35 @@ const showToast = (message) => {
   setTimeout(() => toast.classList.remove('show'), 2200);
 };
 
+const getLeaderEmployees = (currentEmployeeId = null) =>
+  employees
+    .filter((emp) => emp.employee_type === 'L' && emp.id !== currentEmployeeId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+const syncManagerFieldState = () => {
+  if (!employeeTypeSelect || !employeeManagerSelect) return;
+  const isIc = employeeTypeSelect.value === 'IC';
+  employeeManagerSelect.required = isIc;
+  if (isIc) {
+    employeeManagerSelect.setAttribute('aria-required', 'true');
+  } else {
+    employeeManagerSelect.removeAttribute('aria-required');
+  }
+  if (employeeManagerHelp) {
+    employeeManagerHelp.textContent = isIc
+      ? 'Required for ICs.'
+      : 'Optional for leaders.';
+  }
+};
+
 const resetForm = (form, buttonLabel = 'Save') => {
   form.reset();
   const hidden = form.querySelector('input[type="hidden"][name="entity_id"]');
   if (hidden) hidden.value = '';
   form.querySelector('button[type="submit"]').textContent = buttonLabel;
   if (employeeTypeSelect) employeeTypeSelect.value = 'IC';
+  syncManagerFieldState();
 };
-
-const getLeaderEmployees = (currentEmployeeId = null) =>
-  employees
-    .filter((emp) => emp.employee_type === 'L' && emp.id !== currentEmployeeId)
-    .sort((a, b) => a.name.localeCompare(b.name));
 
 const renderEmployees = () => {
   const selectedOrg = employeeOrgFilter?.value || '';
@@ -162,20 +180,22 @@ const updateOrganizationSelect = () => {
 
 const updateManagerSelect = (selectedId = '', currentEmployeeId = null) => {
   if (!employeeManagerSelect) return;
+  const leaders = getLeaderEmployees(currentEmployeeId);
   const options = ['<option value="">No manager</option>']
     .concat(
-      getLeaderEmployees(currentEmployeeId).map((emp) => {
+      leaders.map((emp) => {
         const suffix = emp.organization_name ? ` · ${emp.organization_name}` : '';
         return `<option value="${emp.id}">${escapeHtml(emp.name + suffix)}</option>`;
       })
     )
     .join('');
   employeeManagerSelect.innerHTML = options;
-  if (selectedId && getLeaderEmployees(currentEmployeeId).some((emp) => String(emp.id) === String(selectedId))) {
+  if (selectedId && leaders.some((emp) => String(emp.id) === String(selectedId))) {
     employeeManagerSelect.value = String(selectedId);
   } else {
     employeeManagerSelect.value = '';
   }
+  syncManagerFieldState();
 };
 
 const renderProjects = () => {
@@ -845,6 +865,7 @@ const populateEmployeeForm = (id) => {
   employeeForm.capacity.value = employee.capacity || 1;
   employeeForm.querySelector('input[name="entity_id"]').value = employee.id;
   employeeForm.querySelector('button[type="submit"]').textContent = 'Update Employee';
+  syncManagerFieldState();
 };
 
 const populateProjectForm = (id) => {
@@ -906,6 +927,7 @@ employeeForm.addEventListener('submit', handleEmployeeSubmit);
 projectForm.addEventListener('submit', handleProjectSubmit);
 assignmentForm.addEventListener('submit', handleAssignmentSubmit);
 if (assignmentProjectSelect) assignmentProjectSelect.addEventListener('change', handleAssignmentProjectChange);
+if (employeeTypeSelect) employeeTypeSelect.addEventListener('change', syncManagerFieldState);
 organizationTable.addEventListener('click', tableClickHandler);
 employeeTable.addEventListener('click', tableClickHandler);
 projectTable.addEventListener('click', tableClickHandler);
@@ -921,6 +943,7 @@ const init = async () => {
   applyProjectDefaults();
   applyAssignmentDefaults();
   updateManagerSelect();
+  syncManagerFieldState();
 };
 
 init();

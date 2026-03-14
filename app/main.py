@@ -421,6 +421,8 @@ def validate_employee_payload(
         raise HTTPException(status_code=400, detail="Organization is required")
     ensure_organization(session, organization_id)
     normalized_type = validate_employee_type(employee_type or "IC")
+    if normalized_type == "IC" and manager_id is None:
+        raise HTTPException(status_code=400, detail="Individual contributors must have a manager")
     if manager_id is not None:
         ensure_valid_manager(session, employee_id=employee_id, manager_id=manager_id)
     if employee_id is not None and normalized_type != "L":
