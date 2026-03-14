@@ -151,6 +151,12 @@ def serve_canvas() -> str:
     return canvas_path.read_text(encoding="utf-8")
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+def serve_dashboard() -> str:
+    dashboard_path = STATIC_DIR / "project-dashboard.html"
+    return dashboard_path.read_text(encoding="utf-8")
+
+
 # Employee routes
 @app.get("/employees", response_model=List[EmployeeRead])
 def list_employees(session: Session = Depends(get_session)):

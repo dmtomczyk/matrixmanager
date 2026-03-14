@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Matrix Manager · Project Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="dashboard-page">
+    <header>
+      <div>
+        <h1>Matrix Manager</h1>
+        <p>Portfolio-level FTE dashboard.</p>
+      </div>
+      <nav>
+        <a href="/">Matrix</a>
+        <a href="/canvas">Canvas</a>
+        <a href="/dashboard">Project Dashboard</a>
+      </nav>
+    </header>
+
+    <main class="dashboard-shell">
+      <section class="card filters">
+        <div class="section-head">
+          <h2>Filters</h2>
+          <p>Select projects and time range to plot.</p>
+        </div>
+        <div class="filter-grid">
+          <div>
+            <h4>Projects</h4>
+            <div class="dropdown-control">
+              <button type="button" id="project-picker-btn" class="ghost-button">All projects</button>
+              <div id="project-picker-panel" class="filter-panel hidden">
+                <input type="text" id="project-search" placeholder="Search projects" />
+                <div id="project-checkboxes" class="filter-list"></div>
+                <div class="panel-actions">
+                  <button type="button" id="project-select-all">Select all</button>
+                  <button type="button" id="project-clear" class="secondary">Clear</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h4>Date range</h4>
+            <div class="date-range">
+              <label>Start<input type="date" id="dashboard-start" /></label>
+              <label>End<input type="date" id="dashboard-end" /></label>
+            </div>
+            <div class="filter-actions">
+              <button type="button" id="apply-range">Apply</button>
+              <button type="button" id="reset-range" class="secondary">Reset</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Project FTE rollup</h2>
+          <p>Weekly full-time-equivalent load per project.</p>
+        </div>
+        <div class="chart-panel large">
+          <canvas id="dashboard-chart"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="/static/project-dashboard.js"></script>
+  </body>
+</html>

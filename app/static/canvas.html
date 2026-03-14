@@ -14,58 +14,72 @@
         <p>Spatial staffing canvas.</p>
       </div>
       <nav>
-        <a href="/">Dashboard</a>
+        <a href="/">Matrix</a>
         <a href="/canvas">Canvas</a>
+        <a href="/dashboard">Project Dashboard</a>
       </nav>
     </header>
 
-    <main class="canvas-shell">
-      <div class="canvas-toolbar">
-        <div>
-          <h2>Staffing canvas</h2>
-          <p>Drag to pan. Right-click anywhere for quick actions.</p>
+        <main class="canvas-layout">
+      <aside class="resource-panel">
+        <div class="section-head">
+          <h2>Employees</h2>
+          <p>Drag a resource onto a project to create assignments.</p>
         </div>
-        <div class="toolbar-actions">
-          <label class="unit-toggle">Allocation units
-            <select id="allocation-units">
-              <option value="percent">Percent only</option>
-              <option value="percent-hours">Percent + hours</option>
-            </select>
-          </label>
-          <button type="button" id="reset-view" class="ghost-button">Reset view</button>
+        <div id="resource-list" class="resource-list"></div>
+      </aside>
+      <div class="canvas-area">
+        <div class="canvas-toolbar">
+          <div>
+            <h2>Staffing canvas</h2>
+            <p>Drag to pan. Right-click anywhere for quick actions.</p>
+          </div>
+          <div class="toolbar-actions">
+            <label class="unit-toggle">Allocation units
+              <select id="allocation-units">
+                <option value="percent">Percent only</option>
+                <option value="percent-hours">Percent + hours</option>
+              </select>
+            </label>
+            <button type="button" id="reset-view" class="ghost-button">Reset view</button>
+          </div>
         </div>
-      </div>
-      <div id="canvas-stage" class="canvas-stage">
-        <div id="canvas-content" class="canvas-content"></div>
-        <div class="canvas-legend">
-          <strong>Legend</strong>
-          <ul>
-            <li><span class="legend-swatch employee"></span>Employee node</li>
-            <li><span class="legend-swatch project"></span>Project box</li>
-            <li><span class="legend-swatch assignment"></span>Assignment chip</li>
-            <li><span class="legend-swatch over"></span>Over capacity</li>
-          </ul>
+        <div id="canvas-stage" class="canvas-stage">
+          <div id="canvas-content" class="canvas-content"></div>
+          <div class="canvas-legend">
+            <strong>Legend</strong>
+            <ul>
+              <li><span class="legend-swatch employee"></span>Employee node</li>
+              <li><span class="legend-swatch project"></span>Project box</li>
+              <li><span class="legend-swatch assignment"></span>Assignment chip</li>
+              <li><span class="legend-swatch over"></span>Over capacity</li>
+            </ul>
+          </div>
         </div>
-      </div>
 
-      <div id="context-menu" class="context-menu hidden">
-        <button type="button" data-action="create-project">Create project</button>
-        <button type="button" data-action="add-assignment">Add assignment</button>
-        <button type="button" data-action="edit-employee" class="hidden">Edit employee</button>
-        <button type="button" data-action="edit-project" class="hidden">Edit project</button>
-        <button type="button" data-action="remove-assignment" class="hidden">Remove assignment</button>
-      </div>
+        <div id="context-menu" class="context-menu hidden">
+          <button type="button" data-action="create-project">Create project</button>
+          <button type="button" data-action="edit-project">Edit project</button>
+          <hr />
+          <button type="button" data-action="add-assignment">Add assignment</button>
+          <button type="button" data-action="remove-assignment">Remove assignment</button>
+          <hr />
+          <button type="button" data-action="edit-employee">Edit employee</button>
+        </div>
 
-      <div id="canvas-modal" class="modal hidden" role="dialog" aria-modal="true">
-        <div class="modal-content">
-          <button type="button" class="modal-close" id="modal-close" aria-label="Close">×</button>
-          <div id="modal-body"></div>
+        <div id="canvas-modal" class="modal hidden" role="dialog" aria-modal="true">
+          <div class="modal-content">
+            <button type="button" class="modal-close" id="modal-close" aria-label="Close">×</button>
+            <div id="modal-body"></div>
+          </div>
         </div>
       </div>
     </main>
 
+
     <div id="toast" role="status" aria-live="polite"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="/static/canvas.js"></script>
   </body>
 </html>
