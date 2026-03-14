@@ -76,6 +76,19 @@ matrixmanager/
 
 All endpoints return JSON. The UI uses these endpoints via Fetch; you can automate against them as well.
 
+## Running tests
+
+Install test dependencies from `requirements.txt`, then run:
+
+```bash
+cd matrixmanager
+. .venv/bin/activate  # if using the local venv
+pytest
+```
+
+The suite lives in `tests/` and exercises core TP-backed API and UI-surface regressions.
+It relies on the versions pinned in `requirements.txt` for FastAPI/TestClient compatibility.
+
 ## Next steps / ideas
 
 - Persist simple auth (or wire it into your existing identity provider).
