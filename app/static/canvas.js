@@ -11,6 +11,7 @@ const editEmployeeBtn = contextMenu?.querySelector('[data-action="edit-employee"
 const editProjectBtn = contextMenu?.querySelector('[data-action="edit-project"]');
 const allocationUnitsSelect = document.querySelector('#allocation-units');
 const resourceList = document.querySelector('#resource-list');
+const canvasOrgFilter = document.querySelector('#canvas-org-filter');
 
 const HOURS_PER_FTE = 40;
 const DAY_MS = 86400000;
@@ -311,8 +312,43 @@ const openEmployeeModal = (employeeId = null) => {
 
 const renderResources = () => {
   if (!resourceList) return;
-  resourceList.innerHTML = '';
+  let selectedOrg = canvasOrgFilter?.value || '';
+  const orgMap = new Map();
   state.employees.forEach((employee) => {
+    if (employee.organization_id != null) {
+      const key = String(employee.organization_id);
+      if (!orgMap.has(key)) {
+        orgMap.set(key, employee.organization_name || `Org ${employee.organization_id}`);
+      }
+    }
+  });
+  if (canvasOrgFilter) {
+    const previous = canvasOrgFilter.value;
+    const options = ['<option value="">All</option>']
+      .concat(
+        Array.from(orgMap.entries())
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .map(([value, label]) => `<option value="${value}">${label}</option>`)
+      )
+      .join('');
+    canvasOrgFilter.innerHTML = options;
+    if (previous && orgMap.has(previous)) {
+      canvasOrgFilter.value = previous;
+    } else {
+      canvasOrgFilter.value = '';
+    }
+    selectedOrg = canvasOrgFilter.value;
+  }
+  const filtered = state.employees.filter((employee) => !selectedOrg || String(employee.organization_id) === selectedOrg);
+  resourceList.innerHTML = '';
+  if (!filtered.length) {
+    const empty = document.createElement('div');
+    empty.className = 'muted';
+    empty.textContent = 'No employees match this filter.';
+    resourceList.appendChild(empty);
+    return;
+  }
+  filtered.forEach((employee) => {
     const item = document.createElement('div');
     item.className = 'resource-item';
     item.setAttribute('draggable', 'true');
@@ -320,7 +356,9 @@ const renderResources = () => {
     item.dataset.id = employee.id;
     const details = document.createElement('div');
     details.className = 'resource-details';
-    details.innerHTML = `<strong>${escapeHtml(employee.name)}</strong><span class="resource-meta">${escapeHtml(employee.role || '')}</span>`;
+    const subtitleParts = [employee.role, employee.organization_name].filter(Boolean);
+    const subtitle = subtitleParts.join(' • ');
+    details.innerHTML = `<strong>${escapeHtml(employee.name)}</strong><span class="resource-meta">${escapeHtml(subtitle)}</span>`;
     const capacity = document.createElement('span');
     capacity.className = 'resource-meta';
     capacity.textContent = `${Math.round((employee.capacity || 1) * 100)}%`;
@@ -822,6 +860,8 @@ const init = () => {
   window.addEventListener('resize', () => {
     renderCanvas();
   });
+
+  canvasOrgFilter?.addEventListener('change', () => renderResources());
 
   resetViewBtn.addEventListener('click', () => {
     pan = { x: 0, y: 0 };

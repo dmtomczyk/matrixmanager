@@ -16,6 +16,7 @@
         <a href="/">Matrix</a>
         <a href="/canvas">Canvas</a>
         <a href="/dashboard">Project Dashboard</a>
+        <a href="/orgs">Org Manager</a>
       </nav>
     </header>
 
@@ -67,10 +68,45 @@
       </section>
 
       <div class="card-grid">
-        <section id="employees" class="card single-column">
+        <section id="organizations" class="card single-column">
           <div class="section-head">
-            <h2>Employees</h2>
-            <p>Capture each person, their home location, and their available capacity (1.0 = 100%).</p>
+            <h2>Organizations</h2>
+            <p>Define the business groups employees roll up to.</p>
+          </div>
+          <div class="layout">
+            <div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Headcount</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="organization-table"></tbody>
+              </table>
+            </div>
+            <form id="organization-form" class="panel">
+              <h3>Add / Update Organization</h3>
+              <input type="hidden" name="entity_id" id="organization-id" />
+              <label>Name<input name="name" required /></label>
+              <label>Description<textarea name="description" rows="2"></textarea></label>
+              <button type="submit">Save Organization</button>
+            </form>
+          </div>
+        </section>
+        <section id="employees" class="card single-column">
+          <div class="section-head with-actions">
+            <div>
+              <h2>Employees</h2>
+              <p>Capture each person, their home location, and their available capacity (1.0 = 100%).</p>
+            </div>
+            <label class="filter-control">Organization
+              <select id="employee-org-filter">
+                <option value="">All organizations</option>
+              </select>
+            </label>
           </div>
           <div class="layout">
             <div>
@@ -79,6 +115,7 @@
                   <tr>
                     <th>Name</th>
                     <th>Role</th>
+                    <th>Organization</th>
                     <th>Location</th>
                     <th>Capacity</th>
                     <th></th>
@@ -92,6 +129,7 @@
               <input type="hidden" name="entity_id" id="employee-id" />
               <label>Name<input name="name" required /></label>
               <label>Role<input name="role" /></label>
+              <label>Organization<select name="organization_id" id="employee-organization" required></select></label>
               <label>Location<input name="location" /></label>
               <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" value="1" /></label>
               <button type="submit">Save Employee</button>

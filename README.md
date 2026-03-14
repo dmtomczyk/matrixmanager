@@ -4,7 +4,8 @@ A lightweight resource planning MVP that lets you keep track of employees, proje
 
 ## Features
 
-- **Employees** – CRUD fields for name, role, location, and available capacity (1.0 = 100%).
+- **Organizations** – Define top-level groups and assign each employee to exactly one org.
+- **Employees** – CRUD fields for name, role, location, organization, and available capacity (1.0 = 100%).
 - **Projects** – CRUD for initiatives, including optional description + start/end dates.
 - **Assignments** – Capture who is staffed on what with `start_date`, `end_date`, and allocation (in %). Editing + deletion supported.
 - **Assignment graph + CSV** – Visual node graph links employees to projects, and an Export button produces a CSV with employee, project, date, and allocation columns.
@@ -54,6 +55,10 @@ matrixmanager/
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
+| GET    | `/organizations` | List organizations |
+| POST   | `/organizations` | Create organization |
+| PUT    | `/organizations/{id}` | Update organization |
+| DELETE | `/organizations/{id}` | Delete organization (must be empty) |
 | GET    | `/employees` | List employees |
 | POST   | `/employees` | Create employee |
 | PUT    | `/employees/{id}` | Update employee |

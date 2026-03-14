@@ -1,6 +1,10 @@
+const organizationTable = document.querySelector('#organization-table');
+const organizationForm = document.querySelector('#organization-form');
+const employeeOrganizationSelect = document.querySelector('#employee-organization');
 const employeeTable = document.querySelector('#employee-table');
 const projectTable = document.querySelector('#project-table');
 const assignmentTable = document.querySelector('#assignment-table');
+const employeeOrgFilter = document.querySelector('#employee-org-filter');
 const employeeForm = document.querySelector('#employee-form');
 const projectForm = document.querySelector('#project-form');
 const assignmentForm = document.querySelector('#assignment-form');
@@ -31,6 +35,7 @@ const COLOR_PALETTE = ['#3b82f6', '#22c55e', '#f97316', '#a855f7', '#14b8a6', '#
 let allocationChart;
 let allocationWindow = { mode: 'preset', days: DEFAULT_WINDOW_DAYS };
 
+let organizations = [];
 let employees = [];
 let projects = [];
 let assignments = [];
@@ -65,12 +70,15 @@ const resetForm = (form, buttonLabel = 'Save') => {
 };
 
 const renderEmployees = () => {
-  employeeTable.innerHTML = employees
+  const selectedOrg = employeeOrgFilter?.value || '';
+  const rows = employees
+    .filter((emp) => !selectedOrg || String(emp.organization_id) === selectedOrg)
     .map(
       (emp) => `
       <tr>
         <td>${emp.name}</td>
         <td>${emp.role || ''}</td>
+        <td>${emp.organization_name || ''}</td>
         <td>${emp.location || ''}</td>
         <td>${emp.capacity?.toFixed(1) || '1.0'}</td>
         <td class="actions">
@@ -80,6 +88,57 @@ const renderEmployees = () => {
       </tr>`
     )
     .join('');
+  employeeTable.innerHTML = rows || '<tr><td colspan="6">No employees match this filter.</td></tr>';
+};
+
+const renderOrganizations = () => {
+  if (!organizationTable) return;
+  const headcounts = employees.reduce((acc, emp) => {
+    if (!acc[emp.organization_id]) acc[emp.organization_id] = 0;
+    acc[emp.organization_id] += 1;
+    return acc;
+  }, {});
+  organizationTable.innerHTML = organizations
+    .map((org) => {
+      const count = headcounts[org.id] || 0;
+      return `
+        <tr>
+          <td>${org.name}</td>
+          <td>${org.description || ''}</td>
+          <td>${count}</td>
+          <td class="actions">
+            <button type="button" data-action="edit-organization" data-id="${org.id}">Edit</button>
+            <button type="button" class="secondary" data-action="delete-organization" data-id="${org.id}">Delete</button>
+          </td>
+        </tr>`;
+    })
+    .join('');
+};
+
+const updateOrganizationSelect = () => {
+  if (employeeOrganizationSelect) {
+    const placeholder = '<option value="">Select organization</option>';
+    const options = organizations.map((org) => `<option value="${org.id}">${org.name}</option>`).join('');
+    const current = employeeOrganizationSelect.value;
+    employeeOrganizationSelect.innerHTML = placeholder + options;
+    if (current && organizations.some((org) => String(org.id) === current)) {
+      employeeOrganizationSelect.value = current;
+    } else {
+      employeeOrganizationSelect.value = '';
+    }
+  }
+  if (employeeOrgFilter) {
+    const previous = employeeOrgFilter.value;
+    const filterOptions = ['<option value="">All organizations</option>']
+      .concat(organizations.map((org) => `<option value="${org.id}">${org.name}</option>`))
+      .join('');
+    employeeOrgFilter.innerHTML = filterOptions;
+    if (previous && organizations.some((org) => String(org.id) === previous)) {
+      employeeOrgFilter.value = previous;
+    } else {
+      employeeOrgFilter.value = '';
+    }
+  }
 };
 
 const renderProjects = () => {
@@ -519,9 +578,16 @@ const renderAllocationChart = () => {
   });
 };
 
+const loadOrganizations = async () => {
+  organizations = await apiFetch('/organizations');
+  renderOrganizations();
+  updateOrganizationSelect();
+};
+
 const loadEmployees = async () => {
   employees = await apiFetch('/employees');
   renderEmployees();
+  renderOrganizations();
   updateSelectOptions();
 };
 
@@ -543,11 +609,17 @@ const loadAssignments = async () => {
 const handleEmployeeSubmit = async (event) => {
   event.preventDefault();
   const formData = new FormData(employeeForm);
+  const organizationId = Number(formData.get('organization_id'));
+  if (!organizationId) {
+    alert('Select an organization for this employee.');
+    return;
+  }
   const payload = {
     name: formData.get('name').trim(),
     role: formData.get('role').trim() || null,
     location: formData.get('location').trim() || null,
     capacity: Number(formData.get('capacity')) || 1,
+    organization_id: organizationId,
   };
   const id = formData.get('entity_id');
   try {
@@ -621,6 +693,51 @@ const handleAssignmentSubmit = async (event) => {
   }
 };
 
+const handleOrganizationSubmit = async (event) => {
+  event.preventDefault();
+  const formData = new FormData(organizationForm);
+  const payload = {
+    name: formData.get('name').trim(),
+    description: formData.get('description').trim() || null,
+  };
+  const id = formData.get('entity_id');
+  try {
+    if (id) {
+      await apiFetch(`/organizations/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      showToast('Organization updated');
+    } else {
+      await apiFetch('/organizations', { method: 'POST', body: JSON.stringify(payload) });
+      showToast('Organization added');
+    }
+    resetForm(organizationForm, 'Save Organization');
+    await loadOrganizations();
+    await loadEmployees();
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+const deleteOrganization = async (id) => {
+  if (!confirm('Delete this organization? Employees must be moved first.')) return;
+  try {
+    await apiFetch(`/organizations/${id}`, { method: 'DELETE' });
+    await loadOrganizations();
+    await loadEmployees();
+    showToast('Organization deleted');
+  } catch (err) {
+    alert(err.message);
+  }
+};
+
+const populateOrganizationForm = (id) => {
+  const organization = organizations.find((org) => org.id === Number(id));
+  if (!organization) return;
+  organizationForm.name.value = organization.name;
+  organizationForm.description.value = organization.description || '';
+  organizationForm.querySelector('input[name="entity_id"]').value = organization.id;
+  organizationForm.querySelector('button[type="submit"]').textContent = 'Update Organization';
+};
+
 const tableClickHandler = (event) => {
   const btn = event.target.closest('button[data-action]');
   if (!btn) return;
@@ -633,6 +750,8 @@ const tableClickHandler = (event) => {
   if (action === 'edit-project') return populateProjectForm(id);
   if (action === 'delete-assignment') return deleteAssignment(id);
   if (action === 'edit-assignment') return populateAssignmentForm(id);
+  if (action === 'delete-organization') return deleteOrganization(id);
+  if (action === 'edit-organization') return populateOrganizationForm(id);
 };
 
 const deleteEmployee = async (id) => {
@@ -675,6 +794,9 @@ const populateEmployeeForm = (id) => {
   if (!employee) return;
   employeeForm.name.value = employee.name;
   employeeForm.role.value = employee.role || '';
+  if (employeeOrganizationSelect) {
+    employeeOrganizationSelect.value = employee.organization_id || '';
+  }
   employeeForm.location.value = employee.location || '';
   employeeForm.capacity.value = employee.capacity || 1;
   employeeForm.querySelector('input[name="entity_id"]').value = employee.id;
@@ -735,17 +857,21 @@ if (allocationPresetSelect) allocationPresetSelect.addEventListener('change', ha
 if (allocationApplyBtn) allocationApplyBtn.addEventListener('click', handleCustomRange);
 if (assignmentExportBtn) assignmentExportBtn.addEventListener('click', exportAssignmentsCsv);
 
+organizationForm.addEventListener('submit', handleOrganizationSubmit);
 employeeForm.addEventListener('submit', handleEmployeeSubmit);
 projectForm.addEventListener('submit', handleProjectSubmit);
 assignmentForm.addEventListener('submit', handleAssignmentSubmit);
 if (assignmentProjectSelect) assignmentProjectSelect.addEventListener('change', handleAssignmentProjectChange);
+organizationTable.addEventListener('click', tableClickHandler);
 employeeTable.addEventListener('click', tableClickHandler);
 projectTable.addEventListener('click', tableClickHandler);
 assignmentTable.addEventListener('click', tableClickHandler);
 scheduleEmployeeSelect.addEventListener('change', (event) => loadEmployeeSchedule(event.target.value));
 scheduleProjectSelect.addEventListener('change', (event) => loadProjectSchedule(event.target.value));
+if (employeeOrgFilter) employeeOrgFilter.addEventListener('change', () => renderEmployees());
 
 const init = async () => {
+  await loadOrganizations();
   await Promise.all([loadEmployees(), loadProjects()]);
   await loadAssignments();
   applyProjectDefaults();

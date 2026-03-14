@@ -22,6 +22,28 @@ engine = create_engine(
 )
 
 
+class OrganizationBase(SQLModel):
+    name: str
+    description: Optional[str] = None
+
+
+class Organization(OrganizationBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
+class OrganizationCreate(OrganizationBase):
+    pass
+
+
+class OrganizationRead(OrganizationBase):
+    id: int
+
+
+class OrganizationUpdate(SQLModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class EmployeeBase(SQLModel):
     name: str
     role: Optional[str] = None
@@ -31,14 +53,17 @@ class EmployeeBase(SQLModel):
 
 class Employee(EmployeeBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    organization_id: Optional[int] = Field(default=None, foreign_key="organization.id")
 
 
 class EmployeeCreate(EmployeeBase):
-    pass
+    organization_id: int
 
 
 class EmployeeRead(EmployeeBase):
     id: int
+    organization_id: int
+    organization_name: Optional[str] = None
 
 
 class EmployeeUpdate(SQLModel):
@@ -46,6 +71,7 @@ class EmployeeUpdate(SQLModel):
     role: Optional[str] = None
     location: Optional[str] = None
     capacity: Optional[float] = None
+    organization_id: Optional[int] = None
 
 
 class ProjectBase(SQLModel):
@@ -157,22 +183,70 @@ def serve_dashboard() -> str:
     return dashboard_path.read_text(encoding="utf-8")
 
 
+@app.get("/orgs", response_class=HTMLResponse)
+def serve_org_manager() -> str:
+    org_path = STATIC_DIR / "organizations.html"
+    return org_path.read_text(encoding="utf-8")
+
+
+# Organization routes
+@app.get("/organizations", response_model=List[OrganizationRead])
+def list_organizations(session: Session = Depends(get_session)):
+    organizations = session.exec(select(Organization).order_by(Organization.name)).all()
+    return organizations
+
+
+@app.post("/organizations", response_model=OrganizationRead, status_code=201)
+def create_organization(organization: OrganizationCreate, session: Session = Depends(get_session)):
+    db_org = Organization.from_orm(organization)
+    session.add(db_org)
+    session.commit()
+    session.refresh(db_org)
+    return db_org
+
+
+@app.put("/organizations/{organization_id}", response_model=OrganizationRead)
+def update_organization(organization_id: int, update: OrganizationUpdate, session: Session = Depends(get_session)):
+    organization = session.get(Organization, organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    for key, value in update.dict(exclude_unset=True).items():
+        setattr(organization, key, value)
+    session.add(organization)
+    session.commit()
+    session.refresh(organization)
+    return organization
+
+
+@app.delete("/organizations/{organization_id}", status_code=204)
+def delete_organization(organization_id: int, session: Session = Depends(get_session)):
+    organization = session.get(Organization, organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    employee_count = session.exec(select(Employee).where(Employee.organization_id == organization_id)).first()
+    if employee_count:
+        raise HTTPException(status_code=400, detail="Cannot delete organization with assigned employees")
+    session.delete(organization)
+    session.commit()
+
+
 # Employee routes
 @app.get("/employees", response_model=List[EmployeeRead])
 def list_employees(session: Session = Depends(get_session)):
     employees = session.exec(select(Employee).order_by(Employee.name)).all()
-    return employees
+    return [serialize_employee(session, emp) for emp in employees]
 
 
 @app.post("/employees", response_model=EmployeeRead, status_code=201)
 def create_employee(employee: EmployeeCreate, session: Session = Depends(get_session)):
     if employee.capacity <= 0:
         raise HTTPException(status_code=400, detail="Capacity must be greater than zero")
+    ensure_organization(session, employee.organization_id)
     db_employee = Employee.from_orm(employee)
     session.add(db_employee)
     session.commit()
     session.refresh(db_employee)
-    return db_employee
+    return serialize_employee(session, db_employee)
 
 
 @app.get("/employees/{employee_id}", response_model=EmployeeRead)
@@ -180,7 +254,7 @@ def get_employee(employee_id: int, session: Session = Depends(get_session)):
     employee = session.get(Employee, employee_id)
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
-    return employee
+    return serialize_employee(session, employee)
 
 
 @app.put("/employees/{employee_id}", response_model=EmployeeRead)
@@ -189,12 +263,14 @@ def update_employee(employee_id: int, update: EmployeeUpdate, session: Session =
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     employee_data = update.dict(exclude_unset=True)
+    if "organization_id" in employee_data and employee_data["organization_id"] is not None:
+        ensure_organization(session, employee_data["organization_id"])
     for key, value in employee_data.items():
         setattr(employee, key, value)
     session.add(employee)
     session.commit()
     session.refresh(employee)
-    return employee
+    return serialize_employee(session, employee)
 
 
 @app.delete("/employees/{employee_id}", status_code=204)
@@ -280,6 +356,29 @@ def ensure_project(session: Session, project_id: int) -> Project:
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
+
+
+def ensure_organization(session: Session, organization_id: int) -> Organization:
+    organization = session.get(Organization, organization_id)
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return organization
+
+
+def serialize_employee(session: Session, employee: Employee) -> EmployeeRead:
+    organization_name = None
+    if employee.organization_id is not None:
+        organization = session.get(Organization, employee.organization_id)
+        organization_name = organization.name if organization else None
+    return EmployeeRead(
+        id=employee.id,
+        name=employee.name,
+        role=employee.role,
+        location=employee.location,
+        capacity=employee.capacity,
+        organization_id=employee.organization_id,
+        organization_name=organization_name,
+    )
 
 
 def ensure_employee_and_project(session: Session, employee_id: int, project_id: int) -> None:

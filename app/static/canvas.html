@@ -17,6 +17,7 @@
         <a href="/">Matrix</a>
         <a href="/canvas">Canvas</a>
         <a href="/dashboard">Project Dashboard</a>
+        <a href="/orgs">Org Manager</a>
       </nav>
     </header>
 
@@ -26,6 +27,11 @@
           <h2>Employees</h2>
           <p>Drag a resource onto a project to create assignments.</p>
         </div>
+        <label class="filter-control">Organization
+          <select id="canvas-org-filter">
+            <option value="">All</option>
+          </select>
+        </label>
         <div id="resource-list" class="resource-list"></div>
       </aside>
       <div class="canvas-area">

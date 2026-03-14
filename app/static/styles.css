@@ -561,3 +561,34 @@ body.canvas-page {
 body.canvas-page .canvas-layout {
   flex: 1 1 auto;
 }
+
+body.org-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body.org-page .org-shell {
+  flex: 1 1 auto;
+}
+
+.org-shell {
+  width: min(1200px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.filter-control {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  font-weight: 600;
+  gap: 4px;
+}
+
+.filter-control select {
+  min-width: 200px;
+}
