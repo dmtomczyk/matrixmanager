@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Matrix Manager · Audit</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body data-is-admin="false" data-current-user="">
+    <header>
+      <div>
+        <h1>Audit History</h1>
+        <p>Review the full change history across projects, employees, organizations, and allocations.</p>
+      </div>
+      <nav>
+        <a href="/">Planning</a>
+        <a href="/people">Employees</a>
+        <a href="/staffing">Assignments</a>
+        <a href="/orgs">Organizations</a>
+        <a href="/canvas">Canvas</a>
+        <a href="/dashboard">Project Dashboard</a>
+        <form method="post" action="/logout" class="logout-form">
+          <button type="submit" class="logout-button">Logout</button>
+        </form>
+      </nav>
+    </header>
+
+    <main>
+      <section class="card single-column">
+        <div class="section-head with-actions audit-topbar">
+          <div class="section-copy">
+            <h2>Change log</h2>
+            <p>Filter by entity, action, actor, or free text. Export the current filtered view to CSV.</p>
+          </div>
+          <div class="header-actions audit-actions">
+            <button type="button" id="audit-export" class="ghost-button">Export CSV</button>
+            <button type="button" id="audit-clear" class="secondary hidden">Clear History</button>
+          </div>
+        </div>
+
+        <div class="audit-filter-grid">
+          <label>Entity Type
+            <select id="audit-entity-type">
+              <option value="">All entity types</option>
+              <option value="assignment">Assignment</option>
+              <option value="employee">Employee</option>
+              <option value="organization">Organization</option>
+              <option value="project">Project</option>
+              <option value="audit">Audit</option>
+            </select>
+          </label>
+          <label>Action
+            <select id="audit-action">
+              <option value="">All actions</option>
+              <option value="create">Create</option>
+              <option value="update">Update</option>
+              <option value="delete">Delete</option>
+              <option value="clear">Clear</option>
+            </select>
+          </label>
+          <label>Actor
+            <input type="text" id="audit-actor" placeholder="admin" />
+          </label>
+          <label>Search
+            <input type="text" id="audit-query" placeholder="name, role, notes, org..." />
+          </label>
+        </div>
+
+        <div class="audit-table-shell">
+          <table class="audit-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Actor</th>
+                <th>Entity</th>
+                <th>Action</th>
+                <th>Label</th>
+                <th>Before</th>
+                <th>After</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="/static/audit.js"></script>
+  </body>
+</html>

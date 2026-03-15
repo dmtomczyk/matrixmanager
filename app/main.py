@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
+import json
 import os
 import secrets
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Generator, List, Optional, Set
+from typing import Any, Generator, List, Optional, Set
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -149,6 +152,30 @@ class AssignmentRead(SQLModel):
     project_name: Optional[str]
 
 
+class AuditEntry(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    entity_type: str
+    entity_id: Optional[int] = None
+    entity_label: Optional[str] = None
+    action: str
+    actor_username: str
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    before_json: Optional[str] = None
+    after_json: Optional[str] = None
+
+
+class AuditEntryRead(SQLModel):
+    id: int
+    entity_type: str
+    entity_id: Optional[int]
+    entity_label: Optional[str]
+    action: str
+    actor_username: str
+    occurred_at: datetime
+    before_json: Optional[str]
+    after_json: Optional[str]
+
+
 app = FastAPI(title="Matrix Manager", version="0.1.0")
 
 app.add_middleware(
@@ -201,6 +228,7 @@ def render_app_nav(current_path: str, username: str) -> str:
         ("/orgs", "Organizations"),
         ("/canvas", "Canvas"),
         ("/dashboard", "Project Dashboard"),
+        ("/audit", "Audit"),
     ]
     rendered_links = []
     for href, label in links:
@@ -281,7 +309,7 @@ def build_login_page(error: str = "", next_path: str = "/") -> str:
 
 def is_html_request(request: Request) -> bool:
     accept = request.headers.get("accept", "")
-    return "text/html" in accept or request.url.path in {"/", "/people", "/staffing", "/orgs", "/canvas", "/dashboard", "/docs", "/redoc"}
+    return "text/html" in accept or request.url.path in {"/", "/people", "/staffing", "/orgs", "/canvas", "/dashboard", "/audit", "/docs", "/redoc"}
 
 
 def create_db_and_tables() -> None:
@@ -297,6 +325,9 @@ def run_migrations() -> None:
         if "employee_type" not in column_names:
             connection.exec_driver_sql("ALTER TABLE employee ADD COLUMN employee_type TEXT DEFAULT 'IC'")
         connection.exec_driver_sql("UPDATE employee SET employee_type = 'IC' WHERE employee_type IS NULL OR employee_type = ''")
+        audit_tables = connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='auditentry'").fetchall()
+        if not audit_tables:
+            AuditEntry.__table__.create(bind=connection, checkfirst=True)
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -308,6 +339,89 @@ def static_asset_url(relative_path: str) -> str:
     asset_path = STATIC_DIR / relative_path
     version = int(asset_path.stat().st_mtime) if asset_path.exists() else 0
     return f"/static/{relative_path}?v={version}"
+
+
+def get_request_username(request: Request) -> str:
+    return get_session_username(request.cookies.get(SESSION_COOKIE_NAME)) or "unknown"
+
+
+def is_admin_username(username: Optional[str]) -> bool:
+    return username == "admin"
+
+
+def require_admin_user(request: Request) -> str:
+    username = get_request_username(request)
+    if not is_admin_username(username):
+        raise HTTPException(status_code=403, detail="Only the admin user can modify audit history")
+    return username
+
+
+def jsonable_audit_value(value: Any) -> Any:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def audit_snapshot_from_model(model: Any, extra: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    if model is None:
+        data: dict[str, Any] = {}
+    elif hasattr(model, "model_dump"):
+        data = model.model_dump()
+    elif hasattr(model, "dict"):
+        data = model.dict()
+    elif isinstance(model, dict):
+        data = dict(model)
+    else:
+        data = {"value": str(model)}
+    if extra:
+        data.update(extra)
+    return {key: jsonable_audit_value(value) for key, value in data.items()}
+
+
+def dump_audit_json(value: Optional[dict[str, Any]]) -> Optional[str]:
+    if value is None:
+        return None
+    return json.dumps(value, sort_keys=True)
+
+
+def serialize_audit_entry(entry: AuditEntry) -> AuditEntryRead:
+    return AuditEntryRead(
+        id=entry.id,
+        entity_type=entry.entity_type,
+        entity_id=entry.entity_id,
+        entity_label=entry.entity_label,
+        action=entry.action,
+        actor_username=entry.actor_username,
+        occurred_at=entry.occurred_at,
+        before_json=entry.before_json,
+        after_json=entry.after_json,
+    )
+
+
+def record_audit_entry(
+    session: Session,
+    *,
+    actor_username: str,
+    entity_type: str,
+    action: str,
+    entity_id: Optional[int] = None,
+    entity_label: Optional[str] = None,
+    before: Optional[dict[str, Any]] = None,
+    after: Optional[dict[str, Any]] = None,
+) -> AuditEntry:
+    entry = AuditEntry(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        entity_label=entity_label,
+        action=action,
+        actor_username=actor_username,
+        before_json=dump_audit_json(before),
+        after_json=dump_audit_json(after),
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
 
 
 BASE_NAV_MARKUP = """<nav>
@@ -486,6 +600,22 @@ def serve_org_manager(request: Request) -> str:
     )
 
 
+@app.get("/audit", response_class=HTMLResponse)
+def serve_audit_page(request: Request) -> str:
+    username = get_session_username(request.cookies.get(SESSION_COOKIE_NAME))
+    return serve_html_page(
+        "audit.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/audit.js"': f'src="{static_asset_url("audit.js")}"',
+            'data-is-admin="false"': f'data-is-admin="{"true" if is_admin_username(username) else "false"}"',
+            'data-current-user=""': f'data-current-user="{username or ""}"',
+        },
+        current_path=request.url.path,
+        username=username,
+    )
+
+
 @app.get("/organizations", response_model=List[OrganizationRead])
 def list_organizations(session: Session = Depends(get_session)):
     organizations = session.exec(select(Organization).order_by(Organization.name)).all()
@@ -493,37 +623,68 @@ def list_organizations(session: Session = Depends(get_session)):
 
 
 @app.post("/organizations", response_model=OrganizationRead, status_code=201)
-def create_organization(organization: OrganizationCreate, session: Session = Depends(get_session)):
+def create_organization(organization: OrganizationCreate, request: Request, session: Session = Depends(get_session)):
     db_org = Organization.from_orm(organization)
     session.add(db_org)
     session.commit()
     session.refresh(db_org)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="organization",
+        action="create",
+        entity_id=db_org.id,
+        entity_label=db_org.name,
+        after=audit_snapshot_from_model(db_org),
+    )
     return db_org
 
 
 @app.put("/organizations/{organization_id}", response_model=OrganizationRead)
-def update_organization(organization_id: int, update: OrganizationUpdate, session: Session = Depends(get_session)):
+def update_organization(organization_id: int, update: OrganizationUpdate, request: Request, session: Session = Depends(get_session)):
     organization = session.get(Organization, organization_id)
     if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
+    before = audit_snapshot_from_model(organization)
     for key, value in update.dict(exclude_unset=True).items():
         setattr(organization, key, value)
     session.add(organization)
     session.commit()
     session.refresh(organization)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="organization",
+        action="update",
+        entity_id=organization.id,
+        entity_label=organization.name,
+        before=before,
+        after=audit_snapshot_from_model(organization),
+    )
     return organization
 
 
 @app.delete("/organizations/{organization_id}", status_code=204)
-def delete_organization(organization_id: int, session: Session = Depends(get_session)):
+def delete_organization(organization_id: int, request: Request, session: Session = Depends(get_session)):
     organization = session.get(Organization, organization_id)
     if not organization:
         raise HTTPException(status_code=404, detail="Organization not found")
     employee_count = session.exec(select(Employee).where(Employee.organization_id == organization_id)).first()
     if employee_count:
         raise HTTPException(status_code=400, detail="Cannot delete organization with assigned employees")
+    before = audit_snapshot_from_model(organization)
+    label = organization.name
     session.delete(organization)
     session.commit()
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="organization",
+        action="delete",
+        entity_id=organization_id,
+        entity_label=label,
+        before=before,
+    )
 
 
 @app.get("/employees", response_model=List[EmployeeRead])
@@ -533,14 +694,24 @@ def list_employees(session: Session = Depends(get_session)):
 
 
 @app.post("/employees", response_model=EmployeeRead, status_code=201)
-def create_employee(employee: EmployeeCreate, session: Session = Depends(get_session)):
+def create_employee(employee: EmployeeCreate, request: Request, session: Session = Depends(get_session)):
     employee_payload = employee.dict()
     validate_employee_payload(session, employee_payload)
     db_employee = Employee.from_orm(employee)
     session.add(db_employee)
     session.commit()
     session.refresh(db_employee)
-    return serialize_employee(session, db_employee)
+    employee_read = serialize_employee(session, db_employee)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="employee",
+        action="create",
+        entity_id=db_employee.id,
+        entity_label=db_employee.name,
+        after=audit_snapshot_from_model(employee_read),
+    )
+    return employee_read
 
 
 @app.get("/employees/{employee_id}", response_model=EmployeeRead)
@@ -552,11 +723,12 @@ def get_employee(employee_id: int, session: Session = Depends(get_session)):
 
 
 @app.put("/employees/{employee_id}", response_model=EmployeeRead)
-def update_employee(employee_id: int, update: EmployeeUpdate, session: Session = Depends(get_session)):
+def update_employee(employee_id: int, update: EmployeeUpdate, request: Request, session: Session = Depends(get_session)):
     employee = session.get(Employee, employee_id)
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
+    before = audit_snapshot_from_model(serialize_employee(session, employee))
     employee_data = update.dict(exclude_unset=True)
     proposed_employee = {
         "name": employee_data.get("name", employee.name),
@@ -575,23 +747,71 @@ def update_employee(employee_id: int, update: EmployeeUpdate, session: Session =
     session.add(employee)
     session.commit()
     session.refresh(employee)
-    return serialize_employee(session, employee)
+    employee_read = serialize_employee(session, employee)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="employee",
+        action="update",
+        entity_id=employee.id,
+        entity_label=employee.name,
+        before=before,
+        after=audit_snapshot_from_model(employee_read),
+    )
+    return employee_read
 
 
 @app.delete("/employees/{employee_id}", status_code=204)
-def delete_employee(employee_id: int, session: Session = Depends(get_session)):
+def delete_employee(employee_id: int, request: Request, session: Session = Depends(get_session)):
     employee = session.get(Employee, employee_id)
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
+    actor_username = get_request_username(request)
+    before = audit_snapshot_from_model(serialize_employee(session, employee))
+    label = employee.name
     assignments = session.exec(select(Assignment).where(Assignment.employee_id == employee_id)).all()
     for assignment in assignments:
+        assignment_before = serialize_assignment(session, assignment)
+        assignment_label = f"{assignment_before.employee_name or assignment.employee_id} → {assignment_before.project_name or assignment.project_id}"
         session.delete(assignment)
+        session.commit()
+        record_audit_entry(
+            session,
+            actor_username=actor_username,
+            entity_type="assignment",
+            action="delete",
+            entity_id=assignment.id,
+            entity_label=assignment_label,
+            before=audit_snapshot_from_model(assignment_before),
+        )
     direct_reports = session.exec(select(Employee).where(Employee.manager_id == employee_id)).all()
     for report in direct_reports:
+        report_before = audit_snapshot_from_model(serialize_employee(session, report))
         report.manager_id = None
         session.add(report)
+        session.commit()
+        session.refresh(report)
+        record_audit_entry(
+            session,
+            actor_username=actor_username,
+            entity_type="employee",
+            action="update",
+            entity_id=report.id,
+            entity_label=report.name,
+            before=report_before,
+            after=audit_snapshot_from_model(serialize_employee(session, report)),
+        )
     session.delete(employee)
     session.commit()
+    record_audit_entry(
+        session,
+        actor_username=actor_username,
+        entity_type="employee",
+        action="delete",
+        entity_id=employee_id,
+        entity_label=label,
+        before=before,
+    )
 
 
 @app.get("/projects", response_model=List[ProjectRead])
@@ -601,12 +821,21 @@ def list_projects(session: Session = Depends(get_session)):
 
 
 @app.post("/projects", response_model=ProjectRead, status_code=201)
-def create_project(project: ProjectCreate, session: Session = Depends(get_session)):
+def create_project(project: ProjectCreate, request: Request, session: Session = Depends(get_session)):
     validate_dates(project.start_date, project.end_date)
     db_project = Project.from_orm(project)
     session.add(db_project)
     session.commit()
     session.refresh(db_project)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="project",
+        action="create",
+        entity_id=db_project.id,
+        entity_label=db_project.name,
+        after=audit_snapshot_from_model(db_project),
+    )
     return db_project
 
 
@@ -619,10 +848,11 @@ def get_project(project_id: int, session: Session = Depends(get_session)):
 
 
 @app.put("/projects/{project_id}", response_model=ProjectRead)
-def update_project(project_id: int, update: ProjectUpdate, session: Session = Depends(get_session)):
+def update_project(project_id: int, update: ProjectUpdate, request: Request, session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    before = audit_snapshot_from_model(project)
     validate_dates(update.start_date, project.end_date if update.end_date is None else update.end_date)
     project_data = update.dict(exclude_unset=True)
     for key, value in project_data.items():
@@ -630,19 +860,53 @@ def update_project(project_id: int, update: ProjectUpdate, session: Session = De
     session.add(project)
     session.commit()
     session.refresh(project)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="project",
+        action="update",
+        entity_id=project.id,
+        entity_label=project.name,
+        before=before,
+        after=audit_snapshot_from_model(project),
+    )
     return project
 
 
 @app.delete("/projects/{project_id}", status_code=204)
-def delete_project(project_id: int, session: Session = Depends(get_session)):
+def delete_project(project_id: int, request: Request, session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    actor_username = get_request_username(request)
+    before = audit_snapshot_from_model(project)
+    label = project.name
     assignments = session.exec(select(Assignment).where(Assignment.project_id == project_id)).all()
     for assignment in assignments:
+        assignment_before = serialize_assignment(session, assignment)
+        assignment_label = f"{assignment_before.employee_name or assignment.employee_id} → {assignment_before.project_name or assignment.project_id}"
         session.delete(assignment)
+        session.commit()
+        record_audit_entry(
+            session,
+            actor_username=actor_username,
+            entity_type="assignment",
+            action="delete",
+            entity_id=assignment.id,
+            entity_label=assignment_label,
+            before=audit_snapshot_from_model(assignment_before),
+        )
     session.delete(project)
     session.commit()
+    record_audit_entry(
+        session,
+        actor_username=actor_username,
+        entity_type="project",
+        action="delete",
+        entity_id=project_id,
+        entity_label=label,
+        before=before,
+    )
 
 
 def validate_dates(start: Optional[date], end: Optional[date]) -> None:
@@ -791,7 +1055,7 @@ def list_assignments(
 
 
 @app.post("/assignments", response_model=AssignmentRead, status_code=201)
-def create_assignment(assignment: AssignmentCreate, session: Session = Depends(get_session)):
+def create_assignment(assignment: AssignmentCreate, request: Request, session: Session = Depends(get_session)):
     ensure_employee_and_project(session, assignment.employee_id, assignment.project_id)
     validate_dates(assignment.start_date, assignment.end_date)
     if not 0 < assignment.allocation <= 1:
@@ -800,18 +1064,30 @@ def create_assignment(assignment: AssignmentCreate, session: Session = Depends(g
     session.add(db_assignment)
     session.commit()
     session.refresh(db_assignment)
-    return serialize_assignment(session, db_assignment)
+    assignment_read = serialize_assignment(session, db_assignment)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="assignment",
+        action="create",
+        entity_id=db_assignment.id,
+        entity_label=f"{assignment_read.employee_name or db_assignment.employee_id} → {assignment_read.project_name or db_assignment.project_id}",
+        after=audit_snapshot_from_model(assignment_read),
+    )
+    return assignment_read
 
 
 @app.put("/assignments/{assignment_id}", response_model=AssignmentRead)
 def update_assignment(
     assignment_id: int,
     update: AssignmentUpdate,
+    request: Request,
     session: Session = Depends(get_session),
 ):
     assignment = session.get(Assignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    before = audit_snapshot_from_model(serialize_assignment(session, assignment))
     if update.start_date or update.end_date:
         validate_dates(update.start_date or assignment.start_date, update.end_date or assignment.end_date)
     if update.allocation is not None and not 0 < update.allocation <= 1:
@@ -822,16 +1098,39 @@ def update_assignment(
     session.add(assignment)
     session.commit()
     session.refresh(assignment)
-    return serialize_assignment(session, assignment)
+    assignment_read = serialize_assignment(session, assignment)
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="assignment",
+        action="update",
+        entity_id=assignment.id,
+        entity_label=f"{assignment_read.employee_name or assignment.employee_id} → {assignment_read.project_name or assignment.project_id}",
+        before=before,
+        after=audit_snapshot_from_model(assignment_read),
+    )
+    return assignment_read
 
 
 @app.delete("/assignments/{assignment_id}", status_code=204)
-def delete_assignment(assignment_id: int, session: Session = Depends(get_session)):
+def delete_assignment(assignment_id: int, request: Request, session: Session = Depends(get_session)):
     assignment = session.get(Assignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    before_assignment = serialize_assignment(session, assignment)
+    label = f"{before_assignment.employee_name or assignment.employee_id} → {before_assignment.project_name or assignment.project_id}"
+    before = audit_snapshot_from_model(before_assignment)
     session.delete(assignment)
     session.commit()
+    record_audit_entry(
+        session,
+        actor_username=get_request_username(request),
+        entity_type="assignment",
+        action="delete",
+        entity_id=assignment_id,
+        entity_label=label,
+        before=before,
+    )
 
 
 @app.get("/schedule/employee/{employee_id}", response_model=List[AssignmentRead])
@@ -850,3 +1149,80 @@ def get_project_schedule(project_id: int, session: Session = Depends(get_session
         select(Assignment).where(Assignment.project_id == project_id).order_by(Assignment.start_date)
     ).all()
     return [serialize_assignment(session, a) for a in assignments]
+
+
+@app.get("/audit-log", response_model=List[AuditEntryRead])
+def list_audit_log(
+    entity_type: str = "",
+    action: str = "",
+    actor: str = "",
+    query: str = "",
+    session: Session = Depends(get_session),
+):
+    statement = select(AuditEntry).order_by(AuditEntry.occurred_at.desc(), AuditEntry.id.desc())
+    entries = session.exec(statement).all()
+    query_text = query.strip().lower()
+    if entity_type:
+        entries = [entry for entry in entries if entry.entity_type == entity_type]
+    if action:
+        entries = [entry for entry in entries if entry.action == action]
+    if actor:
+        entries = [entry for entry in entries if entry.actor_username == actor]
+    if query_text:
+        entries = [
+            entry for entry in entries
+            if query_text in (entry.entity_label or "").lower()
+            or query_text in (entry.before_json or "").lower()
+            or query_text in (entry.after_json or "").lower()
+            or query_text in entry.entity_type.lower()
+        ]
+    return [serialize_audit_entry(entry) for entry in entries]
+
+
+@app.get("/audit-log/export")
+def export_audit_log_csv(
+    entity_type: str = "",
+    action: str = "",
+    actor: str = "",
+    query: str = "",
+    session: Session = Depends(get_session),
+):
+    entries = list_audit_log(entity_type=entity_type, action=action, actor=actor, query=query, session=session)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "occurred_at", "actor_username", "entity_type", "entity_id", "entity_label", "action", "before_json", "after_json"])
+    for entry in entries:
+        writer.writerow([
+            entry.id,
+            entry.occurred_at.isoformat(),
+            entry.actor_username,
+            entry.entity_type,
+            entry.entity_id or "",
+            entry.entity_label or "",
+            entry.action,
+            entry.before_json or "",
+            entry.after_json or "",
+        ])
+    return PlainTextResponse(
+        output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="audit_log_{date.today().isoformat()}.csv"'},
+    )
+
+
+@app.delete("/audit-log", status_code=204)
+def clear_audit_log(request: Request, session: Session = Depends(get_session)):
+    actor_username = require_admin_user(request)
+    existing_entries = session.exec(select(AuditEntry)).all()
+    removed_count = len(existing_entries)
+    for entry in existing_entries:
+        session.delete(entry)
+    session.commit()
+    record_audit_entry(
+        session,
+        actor_username=actor_username,
+        entity_type="audit",
+        action="clear",
+        entity_label="Audit history",
+        after={"removed_entries": removed_count},
+    )
