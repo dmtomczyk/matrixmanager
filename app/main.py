@@ -21,6 +21,7 @@ engine = create_engine(
     connect_args={"check_same_thread": False},
 )
 
+
 class OrganizationBase(SQLModel):
     name: str
     description: Optional[str] = None
@@ -173,6 +174,20 @@ def get_session() -> Generator[Session, None, None]:
         yield session
 
 
+def static_asset_url(relative_path: str) -> str:
+    asset_path = STATIC_DIR / relative_path
+    version = int(asset_path.stat().st_mtime) if asset_path.exists() else 0
+    return f"/static/{relative_path}?v={version}"
+
+
+def serve_html_page(filename: str, replacements: Optional[dict[str, str]] = None) -> str:
+    html = (STATIC_DIR / filename).read_text(encoding="utf-8")
+    replacements = replacements or {}
+    for old, new in replacements.items():
+        html = html.replace(old, new)
+    return html
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -185,38 +200,68 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 def serve_index() -> str:
-    index_path = STATIC_DIR / "planning.html"
-    return index_path.read_text(encoding="utf-8")
+    return serve_html_page(
+        "planning.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/planning.js"': f'src="{static_asset_url("planning.js")}"',
+        },
+    )
 
 
 @app.get("/people", response_class=HTMLResponse)
 def serve_employees() -> str:
-    path = STATIC_DIR / "employees.html"
-    return path.read_text(encoding="utf-8")
+    return serve_html_page(
+        "employees.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/employees.js"': f'src="{static_asset_url("employees.js")}"',
+        },
+    )
 
 
 @app.get("/staffing", response_class=HTMLResponse)
 def serve_assignments() -> str:
-    path = STATIC_DIR / "assignments.html"
-    return path.read_text(encoding="utf-8")
+    return serve_html_page(
+        "assignments.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/assignments.js"': f'src="{static_asset_url("assignments.js")}"',
+        },
+    )
 
 
 @app.get("/canvas", response_class=HTMLResponse)
 def serve_canvas() -> str:
-    canvas_path = STATIC_DIR / "canvas.html"
-    return canvas_path.read_text(encoding="utf-8")
+    return serve_html_page(
+        "canvas.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/canvas.js"': f'src="{static_asset_url("canvas.js")}"',
+        },
+    )
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def serve_dashboard() -> str:
-    dashboard_path = STATIC_DIR / "project-dashboard.html"
-    return dashboard_path.read_text(encoding="utf-8")
+    return serve_html_page(
+        "project-dashboard.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/project-dashboard.js"': f'src="{static_asset_url("project-dashboard.js")}"',
+        },
+    )
 
 
 @app.get("/orgs", response_class=HTMLResponse)
 def serve_org_manager() -> str:
-    org_path = STATIC_DIR / "organizations.html"
-    return org_path.read_text(encoding="utf-8")
+    return serve_html_page(
+        "organizations.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/organizations.js"': f'src="{static_asset_url("organizations.js")}"',
+        },
+    )
 
 
 # Organization routes
