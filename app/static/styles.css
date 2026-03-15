@@ -383,6 +383,12 @@ main {
   gap: 12px;
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 @media (max-width: 640px) {
   header {
     grid-template-columns: 1fr;

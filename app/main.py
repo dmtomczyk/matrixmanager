@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import hmac
@@ -234,6 +235,38 @@ class DBConnectionRead(DBConnectionBase):
     connection_summary: str
 
 
+class UserAccount(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str
+    password_hash: str
+    is_admin: bool = False
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class UserAccountCreate(SQLModel):
+    username: str
+    password: str
+    is_admin: bool = False
+
+
+class UserAccountUpdate(SQLModel):
+    password: Optional[str] = None
+    is_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class UserAccountRead(SQLModel):
+    id: int
+    username: str
+    is_admin: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    auth_source: str = "database"
+
+
 app = FastAPI(title="Matrix Manager", version="0.1.0")
 
 app.add_middleware(
@@ -257,6 +290,26 @@ def get_session_secret() -> str:
     return os.getenv("MATRIX_AUTH_SECRET") or f"{get_auth_username()}:{get_auth_password()}"
 
 
+def hash_password(password: str, salt: Optional[bytes] = None) -> str:
+    salt_bytes = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, 600000)
+    return f"pbkdf2_sha256$600000${base64.b64encode(salt_bytes).decode('ascii')}${base64.b64encode(digest).decode('ascii')}"
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        algorithm, iterations_text, salt_text, digest_text = password_hash.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_text)
+        salt = base64.b64decode(salt_text.encode("ascii"))
+        expected = base64.b64decode(digest_text.encode("ascii"))
+    except Exception:
+        return False
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return secrets.compare_digest(candidate, expected)
+
+
 def sign_session_value(username: str) -> str:
     secret = get_session_secret().encode("utf-8")
     payload = username.encode("utf-8")
@@ -264,12 +317,23 @@ def sign_session_value(username: str) -> str:
     return f"{username}:{digest}"
 
 
+def user_exists(username: str) -> bool:
+    with Session(control_engine) as session:
+        user = session.exec(select(UserAccount).where(UserAccount.username == username)).first()
+        return bool(user and user.is_active)
+
+
 def verify_session_value(cookie_value: Optional[str]) -> bool:
     if not cookie_value or ":" not in cookie_value:
         return False
     username, provided_sig = cookie_value.split(":", 1)
     expected = sign_session_value(username)
-    return username == get_auth_username() and secrets.compare_digest(cookie_value, expected) and secrets.compare_digest(provided_sig, expected.split(":", 1)[1])
+    signature_ok = secrets.compare_digest(cookie_value, expected) and secrets.compare_digest(provided_sig, expected.split(":", 1)[1])
+    if not signature_ok:
+        return False
+    if username == get_auth_username():
+        return True
+    return user_exists(username)
 
 
 def get_session_username(cookie_value: Optional[str]) -> Optional[str]:
@@ -289,6 +353,7 @@ def render_app_nav(current_path: str, username: str) -> str:
         ("/audit", "Audit"),
     ]
     if is_admin_username(username):
+        links.append(("/users", "Users"))
         links.append(("/db-management", "DB Management"))
     rendered_links = []
     for href, label in links:
@@ -369,7 +434,7 @@ def build_login_page(error: str = "", next_path: str = "/") -> str:
 
 def is_html_request(request: Request) -> bool:
     accept = request.headers.get("accept", "")
-    return "text/html" in accept or request.url.path in {"/", "/people", "/staffing", "/orgs", "/canvas", "/dashboard", "/audit", "/db-management", "/docs", "/redoc"}
+    return "text/html" in accept or request.url.path in {"/", "/people", "/staffing", "/orgs", "/canvas", "/dashboard", "/audit", "/users", "/db-management", "/docs", "/redoc"}
 
 
 def create_db_and_tables(bind_engine=engine) -> None:
@@ -389,9 +454,12 @@ def run_migrations(bind_engine=engine) -> None:
             connection.exec_driver_sql("UPDATE employee SET employee_type = 'IC' WHERE employee_type IS NULL OR employee_type = ''")
         AuditEntry.__table__.create(bind=connection, checkfirst=True)
         DBConnectionConfig.__table__.create(bind=connection, checkfirst=True)
+        UserAccount.__table__.create(bind=connection, checkfirst=True)
 
 
 def get_control_session() -> Generator[Session, None, None]:
+    create_db_and_tables(control_engine)
+    run_migrations(control_engine)
     with Session(control_engine) as session:
         yield session
 
@@ -582,8 +650,38 @@ def get_request_username(request: Request) -> str:
     return get_session_username(request.cookies.get(SESSION_COOKIE_NAME)) or "unknown"
 
 
+def is_database_admin(username: Optional[str]) -> bool:
+    if not username:
+        return False
+    with Session(control_engine) as session:
+        user = session.exec(select(UserAccount).where(UserAccount.username == username)).first()
+        return bool(user and user.is_active and user.is_admin)
+
+
+def authenticate_username_password(username: str, password: str) -> bool:
+    if secrets.compare_digest(username, get_auth_username()) and secrets.compare_digest(password, get_auth_password()):
+        return True
+    with Session(control_engine) as session:
+        user = session.exec(select(UserAccount).where(UserAccount.username == username)).first()
+        if not user or not user.is_active:
+            return False
+        return verify_password(password, user.password_hash)
+
+
+def serialize_user_account(user: UserAccount) -> UserAccountRead:
+    return UserAccountRead(
+        id=user.id,
+        username=user.username,
+        is_admin=user.is_admin,
+        is_active=user.is_active,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        auth_source="database",
+    )
+
+
 def is_admin_username(username: Optional[str]) -> bool:
-    return username == "admin"
+    return username == "admin" or is_database_admin(username)
 
 
 def require_admin_user(request: Request) -> str:
@@ -697,6 +795,7 @@ def on_startup() -> None:
     create_db_and_tables(control_engine)
     run_migrations(control_engine)
     ensure_default_db_connection()
+    ensure_default_admin_user()
     active_connection = get_active_db_connection_config()
     get_or_create_data_engine(active_connection)
 
@@ -734,6 +833,22 @@ def login_page(request: Request, error: str = "", next: str = "/") -> str:
     return build_login_page(error=error, next_path=next)
 
 
+def ensure_default_admin_user() -> None:
+    with Session(control_engine) as session:
+        env_admin = session.exec(select(UserAccount).where(UserAccount.username == get_auth_username())).first()
+        if env_admin:
+            return
+        session.add(
+            UserAccount(
+                username=get_auth_username(),
+                password_hash=hash_password(get_auth_password()),
+                is_admin=True,
+                is_active=True,
+            )
+        )
+        session.commit()
+
+
 @app.post("/login")
 async def login_submit(request: Request):
     raw_body = (await request.body()).decode("utf-8")
@@ -750,7 +865,7 @@ async def login_submit(request: Request):
     username = unquote_plus(username)
     password = unquote_plus(password)
     next_target = unquote_plus(next_target)
-    if not (secrets.compare_digest(username, get_auth_username()) and secrets.compare_digest(password, get_auth_password())):
+    if not authenticate_username_password(username, password):
         return HTMLResponse(build_login_page(error="Invalid username or password.", next_path=next_target), status_code=401)
     target = next_target if next_target.startswith("/") else "/"
     response = RedirectResponse(url=target, status_code=302)
@@ -860,6 +975,22 @@ def serve_audit_page(request: Request) -> str:
             'src="/static/audit.js"': f'src="{static_asset_url("audit.js")}"',
             'data-is-admin="false"': f'data-is-admin="{"true" if is_admin_username(username) else "false"}"',
             'data-current-user=""': f'data-current-user="{username or ""}"',
+        },
+        current_path=request.url.path,
+        username=username,
+    )
+
+
+@app.get("/users", response_class=HTMLResponse)
+def serve_users_page(request: Request) -> str:
+    username = get_session_username(request.cookies.get(SESSION_COOKIE_NAME))
+    if not is_admin_username(username):
+        raise HTTPException(status_code=403, detail="Only admin can manage users")
+    return serve_html_page(
+        "users.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/users.js"': f'src="{static_asset_url("users.js")}"',
         },
         current_path=request.url.path,
         username=username,
@@ -1492,6 +1623,67 @@ def clear_audit_log(request: Request, session: Session = Depends(get_session)):
         entity_label="Audit history",
         after={"removed_entries": removed_count},
     )
+
+
+@app.get("/users-api", response_model=List[UserAccountRead])
+def list_users(request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    items = session.exec(select(UserAccount).order_by(UserAccount.username)).all()
+    return [serialize_user_account(item) for item in items]
+
+
+@app.post("/users-api", response_model=UserAccountRead, status_code=201)
+def create_user(user: UserAccountCreate, request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    username = user.username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    if session.exec(select(UserAccount).where(UserAccount.username == username)).first():
+        raise HTTPException(status_code=400, detail="Username already exists")
+    if len(user.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    db_user = UserAccount(
+        username=username,
+        password_hash=hash_password(user.password),
+        is_admin=user.is_admin,
+        is_active=True,
+    )
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+    return serialize_user_account(db_user)
+
+
+@app.put("/users-api/{user_id}", response_model=UserAccountRead)
+def update_user(user_id: int, update: UserAccountUpdate, request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    user = session.get(UserAccount, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    data = update.model_dump(exclude_unset=True)
+    if "password" in data and data["password"] is not None:
+        if len(data["password"]) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+        user.password_hash = hash_password(data.pop("password"))
+    for key, value in data.items():
+        setattr(user, key, value)
+    user.updated_at = datetime.now(timezone.utc)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return serialize_user_account(user)
+
+
+@app.delete("/users-api/{user_id}", status_code=204)
+def delete_user(user_id: int, request: Request, session: Session = Depends(get_control_session)):
+    current_username = require_admin_user(request)
+    user = session.get(UserAccount, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.username == current_username:
+        raise HTTPException(status_code=400, detail="You cannot delete your current user")
+    session.delete(user)
+    session.commit()
 
 
 @app.get("/db-connections", response_model=List[DBConnectionRead])

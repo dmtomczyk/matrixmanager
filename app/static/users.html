@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Matrix Manager · Users</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>User Management</h1>
+        <p>Create and manage database-backed users for beta access.</p>
+      </div>
+      <nav>
+        <a href="/">Planning</a>
+        <a href="/people">Employees</a>
+        <a href="/staffing">Assignments</a>
+        <a href="/orgs">Organizations</a>
+        <a href="/canvas">Canvas</a>
+        <a href="/dashboard">Project Dashboard</a>
+        <form method="post" action="/logout" class="logout-form">
+          <button type="submit" class="logout-button">Logout</button>
+        </form>
+      </nav>
+    </header>
+
+    <main>
+      <section class="card single-column">
+        <div class="section-head">
+          <h2>Users</h2>
+          <p>Passwords are stored as salted PBKDF2 hashes. The env admin user remains valid as a bootstrap account.</p>
+        </div>
+        <div class="layout db-management-layout">
+          <div class="db-table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Admin</th>
+                  <th>Active</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="user-table"></tbody>
+            </table>
+          </div>
+          <form id="user-form" class="panel">
+            <h3 id="user-form-title">Add User</h3>
+            <input type="hidden" name="entity_id" />
+            <label>Username<input name="username" required /></label>
+            <label>Password<input name="password" type="password" placeholder="Leave blank to keep existing password when editing" /></label>
+            <label class="checkbox-row"><input name="is_admin" type="checkbox" /> Admin user</label>
+            <label class="checkbox-row"><input name="is_active" type="checkbox" checked /> Active</label>
+            <div class="panel-actions-row">
+              <button type="submit">Save User</button>
+              <button type="button" class="secondary" id="user-form-reset">Clear</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="/static/users.js"></script>
+  </body>
+</html>
