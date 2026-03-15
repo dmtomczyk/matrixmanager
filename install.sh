@@ -85,7 +85,7 @@ echo "Matrix Manager beta installer"
 echo "Project root: $ROOT_DIR"
 echo
 
-INSTALL_MODE="$(prompt_with_default "Install mode (sqlite/postgresql)" "sqlite")"
+INSTALL_MODE="$(prompt_with_default "Install mode (postgresql/sqlite)" "postgresql")"
 INSTALL_MODE="$(printf '%s' "$INSTALL_MODE" | tr '[:upper:]' '[:lower:]')"
 if [[ "$INSTALL_MODE" != "sqlite" && "$INSTALL_MODE" != "postgresql" ]]; then
   echo "Error: install mode must be 'sqlite' or 'postgresql'." >&2
