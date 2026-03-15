@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import os
+import secrets
 from datetime import date
 from pathlib import Path
 from typing import Generator, List, Optional, Set
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -20,6 +23,7 @@ engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
 )
+security = HTTPBasic(auto_error=False)
 
 
 class OrganizationBase(SQLModel):
@@ -152,6 +156,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def get_auth_username() -> str:
+    return os.getenv("MATRIX_AUTH_USERNAME", "admin")
+
+
+def get_auth_password() -> str:
+    return os.getenv("MATRIX_AUTH_PASSWORD", "changeme")
+
+
+def auth_challenge_response() -> Response:
+    return Response(
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Matrix Manager"'},
+    )
+
+
+def verify_basic_auth(credentials: Optional[HTTPBasicCredentials]) -> bool:
+    if credentials is None:
+        return False
+    expected_username = get_auth_username()
+    expected_password = get_auth_password()
+    return secrets.compare_digest(credentials.username, expected_username) and secrets.compare_digest(credentials.password, expected_password)
+
+
+@app.middleware("http")
+async def require_basic_auth(request: Request, call_next):
+    credentials = await security(request)
+    if not verify_basic_auth(credentials):
+        return auth_challenge_response()
+    return await call_next(request)
 
 
 def create_db_and_tables() -> None:

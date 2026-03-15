@@ -9,9 +9,11 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from app import main as mainmod
 
+AUTH = ("testuser", "testpass")
+
 
 @pytest.fixture()
-def client(tmp_path: Path) -> Iterator[TestClient]:
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     db_path = tmp_path / "test_matrix.db"
     test_engine = create_engine(
         f"sqlite:///{db_path}",
@@ -21,12 +23,16 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     original_engine = mainmod.engine
     original_db_path = mainmod.DB_PATH
 
+    monkeypatch.setenv("MATRIX_AUTH_USERNAME", AUTH[0])
+    monkeypatch.setenv("MATRIX_AUTH_PASSWORD", AUTH[1])
+
     mainmod.engine = test_engine
     mainmod.DB_PATH = db_path
     SQLModel.metadata.create_all(mainmod.engine)
     mainmod.run_migrations()
 
     with TestClient(mainmod.app) as test_client:
+        test_client.auth = AUTH
         yield test_client
 
     mainmod.engine = original_engine

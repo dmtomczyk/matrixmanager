@@ -13,6 +13,7 @@ A lightweight resource planning MVP that lets you keep track of employees, proje
 - **Timelines** – Quick schedule views per employee or per project powered by `/schedule/*` endpoints.
 - **Allocation watchdog** – A Chart.js line chart overlays time-phased allocation vs. capacity (choose presets or custom ranges) and highlights >100% overloads.
 - **REST API** – FastAPI automatically exposes OpenAPI docs at `/docs` for programmatic integrations.
+- **HTTP Basic Auth** – The entire site and API are protected with browser-native Basic Auth using `MATRIX_AUTH_USERNAME` / `MATRIX_AUTH_PASSWORD`.
 - **SQLite persistence** – Default database lives in `matrixmanager/matrix.db`, making it trivial to back up or inspect.
 
 ## Project layout
@@ -37,13 +38,20 @@ matrixmanager/
    pip install -r requirements.txt
    ```
 
-2. **Run the dev server**:
+2. **Set HTTP Basic Auth credentials**:
+
+   ```bash
+   export MATRIX_AUTH_USERNAME=admin
+   export MATRIX_AUTH_PASSWORD='choose-a-strong-password'
+   ```
+
+3. **Run the dev server**:
 
    ```bash
    uvicorn app.main:app --reload
    ```
 
-   The app listens on `http://127.0.0.1:8000/`. The interactive API docs live at `http://127.0.0.1:8000/docs`.
+   The app listens on `http://127.0.0.1:8000/`. You will be prompted for the configured Basic Auth username and password before accessing any page or API route.
 
 3. **Use the UI** – visit the root URL for the planning page, then navigate between:
    - `/` → demand/planning view (projects, timelines, allocation chart, assignment graph)
