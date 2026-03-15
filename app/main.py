@@ -333,6 +333,7 @@ def serve_html_page(
     replacements = replacements or {}
     if current_path and username:
         replacements[BASE_NAV_MARKUP] = render_app_nav(current_path=current_path, username=username)
+        replacements["</body>"] = f'    <script src="{static_asset_url("app-shell.js")}"></script>\n  </body>'
     for old, new in replacements.items():
         html = html.replace(old, new)
     return html
