@@ -11,7 +11,7 @@ import secrets
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Generator, List, Optional, Set
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -535,12 +535,14 @@ def build_database_url(connection: DBConnectionConfig) -> str:
         if not sqlite_path.is_absolute():
             sqlite_path = ROOT_DIR / sqlite_path
         return f"sqlite:///{sqlite_path}"
-    username = connection.postgres_username or ""
+    username = quote_plus(connection.postgres_username or "")
     password = connection.postgres_password or ""
     auth = username
     if password:
-        auth = f"{username}:{password}"
-    return f"postgresql+psycopg://{auth}@{connection.postgres_host}:{connection.postgres_port}/{connection.postgres_database}?sslmode={connection.postgres_sslmode or 'prefer'}"
+        auth = f"{username}:{quote_plus(password)}"
+    database = quote_plus(connection.postgres_database or "")
+    host = connection.postgres_host or "localhost"
+    return f"postgresql+psycopg://{auth}@{host}:{connection.postgres_port}/{database}?sslmode={connection.postgres_sslmode or 'prefer'}"
 
 
 def get_or_create_data_engine(connection: DBConnectionConfig):
