@@ -600,6 +600,15 @@ def ensure_default_db_connection() -> None:
                         and (item.postgres_username or "") == (bootstrap_connection.postgres_username or "")
                     )
                 if should_be_active:
+                    item.name = bootstrap_connection.name
+                    item.db_type = bootstrap_connection.db_type
+                    item.sqlite_path = bootstrap_connection.sqlite_path
+                    item.postgres_host = bootstrap_connection.postgres_host
+                    item.postgres_port = bootstrap_connection.postgres_port
+                    item.postgres_database = bootstrap_connection.postgres_database
+                    item.postgres_username = bootstrap_connection.postgres_username
+                    item.postgres_password = bootstrap_connection.postgres_password
+                    item.postgres_sslmode = bootstrap_connection.postgres_sslmode
                     item.is_active = True
                     item.updated_at = datetime.now(timezone.utc)
                     session.add(item)
