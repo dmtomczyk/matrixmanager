@@ -46,6 +46,8 @@ For Phase 1, this work does **not** aim to deliver:
 3. pilot customers evaluating hosted-vs-self-hosted fit
 
 ## 5. Supported Deployment Model
+> Phase 0 implementation decisions for this PRD are frozen in `requirements/phase0_beta_installer_decisions.md`.
+
 ### PRD-001
 The Phase 1 beta installer shall officially support a **Docker Compose-based deployment model**.
 

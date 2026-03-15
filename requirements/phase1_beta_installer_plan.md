@@ -26,6 +26,11 @@ Decide the exact supported beta deployment path before implementation expands in
 - Install modes are frozen.
 - Team agrees on what Phase 1 explicitly does not support.
 
+### Status
+**Accepted / frozen** via:
+- `requirements/phase0_beta_installer_decisions.md`
+- `requirements/phase0_p0_delivery_checklist.md`
+
 ---
 
 ## Phase 1 — Make Runtime Deployable
