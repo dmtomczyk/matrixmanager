@@ -208,17 +208,36 @@ def render_app_nav(current_path: str, username: str) -> str:
         aria_current = ' aria-current="page"' if href == current_path else ""
         rendered_links.append(f'<a href="{href}" class="{class_name}"{aria_current}>{label}</a>')
     link_markup = "".join(rendered_links)
-    return f'''<nav class="app-nav">
-        <div class="nav-links">{link_markup}</div>
+    return f'''<nav class="app-nav" aria-label="Primary">
+        <div class="app-nav-main">
+          <div class="nav-links nav-links-desktop">{link_markup}</div>
+          <details class="hamburger-menu">
+            <summary class="hamburger-trigger" aria-label="Open navigation menu">
+              <span class="hamburger-icon" aria-hidden="true"></span>
+              <span>Menu</span>
+            </summary>
+            <div class="hamburger-panel">
+              <div class="nav-links nav-links-mobile">{link_markup}</div>
+            </div>
+          </details>
+        </div>
         <details class="account-menu">
           <summary class="account-menu-trigger">
-            <span class="account-menu-label">Signed in as</span>
-            <span class="account-menu-username">{username}</span>
+            <span class="account-icon" aria-hidden="true">👤</span>
+            <span class="account-menu-copy">
+              <span class="account-menu-label">Signed in as</span>
+              <span class="account-menu-username">{username}</span>
+            </span>
           </summary>
           <div class="account-menu-panel">
             <div class="account-menu-meta">
-              <span class="account-menu-label">Signed in as</span>
-              <strong>{username}</strong>
+              <div class="account-menu-meta-top">
+                <span class="account-icon account-icon-panel" aria-hidden="true">👤</span>
+                <div>
+                  <span class="account-menu-label">Signed in as</span>
+                  <strong>{username}</strong>
+                </div>
+              </div>
             </div>
             <form method="post" action="/logout" class="logout-form">
               <button type="submit" class="logout-button">Logout</button>
