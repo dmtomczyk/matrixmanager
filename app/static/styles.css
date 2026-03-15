@@ -173,6 +173,11 @@ table td {
   vertical-align: top;
 }
 
+table th:first-child,
+table td:first-child {
+  text-align: center;
+}
+
 table tbody tr:hover {
   background: rgba(59, 130, 246, 0.05);
 }
@@ -305,6 +310,25 @@ table tbody tr:hover {
 
 .section-head.with-actions .section-copy {
   flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-actions-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .ghost-button {
@@ -597,10 +621,28 @@ body.org-page .org-shell {
   width: 100%;
 }
 
+.checkbox-cell {
+  width: 42px;
+}
+
+.checkbox-cell input,
+.employee-select-checkbox {
+  width: 16px;
+  height: 16px;
+}
+
 .employee-name-cell {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+  min-height: 28px;
+}
+
+.employee-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .employee-name-stack {
@@ -615,28 +657,59 @@ body.org-page .org-shell {
 }
 
 .hierarchy-toggle {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: white;
-  color: var(--text);
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
   padding: 0;
   line-height: 1;
   flex: 0 0 auto;
 }
 
+.hierarchy-toggle-small {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2px;
+}
+
+.hierarchy-toggle-small .chevron {
+  font-size: 11px;
+  transform: translateY(-0.5px);
+}
+
 .hierarchy-toggle:hover {
-  border-color: var(--primary);
-  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--border);
+  background: rgba(59, 130, 246, 0.06);
+  color: var(--primary);
 }
 
 .hierarchy-leaf {
-  width: 24px;
-  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #94a3b8;
   flex: 0 0 auto;
+}
+
+.hierarchy-leaf-small {
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+}
+
+.link-button {
+  background: transparent;
+  color: var(--primary);
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.link-button:hover {
+  text-decoration: underline;
 }

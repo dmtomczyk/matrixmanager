@@ -25,21 +25,26 @@
     <main class="org-shell">
       <section id="employees" class="card single-column">
         <div class="section-head with-actions">
-          <div>
+          <div class="section-copy">
             <h2>Employees</h2>
             <p>Capture each person, their org, manager, type, home location, and available capacity.</p>
           </div>
-          <label class="filter-control">Organization
-            <select id="employee-org-filter">
-              <option value="">All organizations</option>
-            </select>
-          </label>
+          <div class="header-actions">
+            <label class="filter-control">Organization
+              <select id="employee-org-filter">
+                <option value="">All organizations</option>
+              </select>
+            </label>
+            <button type="button" id="expand-all-visible" class="ghost-button">Expand visible</button>
+            <button type="button" id="collapse-all-visible" class="ghost-button">Collapse visible</button>
+          </div>
         </div>
         <div class="layout">
           <div>
             <table class="hierarchy-table">
               <thead>
                 <tr>
+                  <th><input type="checkbox" id="select-all-employees" aria-label="Select all visible employees" /></th>
                   <th>Name</th>
                   <th>Role</th>
                   <th>Type</th>
@@ -53,24 +58,46 @@
               <tbody id="employee-table"></tbody>
             </table>
           </div>
-          <form id="employee-form" class="panel">
-            <h3>Add / Update Employee</h3>
-            <input type="hidden" name="entity_id" id="employee-id" />
-            <label>Name<input name="name" required /></label>
-            <label>Role<input name="role" /></label>
-            <label>Type
-              <select name="employee_type" id="employee-type">
-                <option value="IC">IC</option>
-                <option value="L">L</option>
-              </select>
-            </label>
-            <label>Organization<select name="organization_id" id="employee-organization" required></select></label>
-            <label>Manager<select name="manager_id" id="employee-manager"></select></label>
-            <p id="employee-manager-help" class="muted small-text">Required for ICs. Optional for leaders.</p>
-            <label>Location<input name="location" /></label>
-            <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" value="1" /></label>
-            <button type="submit">Save Employee</button>
-          </form>
+          <div class="panel-stack">
+            <form id="bulk-employee-form" class="panel">
+              <h3>Bulk Edit Selected Employees</h3>
+              <p id="bulk-selection-status" class="muted small-text">No employees selected.</p>
+              <label>Type
+                <select name="employee_type" id="bulk-employee-type">
+                  <option value="">No change</option>
+                  <option value="IC">Set to IC</option>
+                  <option value="L">Set to L</option>
+                </select>
+              </label>
+              <label>Organization<select name="organization_id" id="bulk-employee-organization"></select></label>
+              <label>Manager<select name="manager_id" id="bulk-employee-manager"></select></label>
+              <label>Location<input name="location" placeholder="Leave blank for no change" /></label>
+              <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" placeholder="Leave blank for no change" /></label>
+              <div class="panel-actions-row">
+                <button type="submit" id="bulk-apply-button">Apply to Selected</button>
+                <button type="button" class="secondary" id="bulk-clear-selection">Clear Selection</button>
+              </div>
+            </form>
+
+            <form id="employee-form" class="panel">
+              <h3>Add / Update Employee</h3>
+              <input type="hidden" name="entity_id" id="employee-id" />
+              <label>Name<input name="name" required /></label>
+              <label>Role<input name="role" /></label>
+              <label>Type
+                <select name="employee_type" id="employee-type">
+                  <option value="IC">IC</option>
+                  <option value="L">L</option>
+                </select>
+              </label>
+              <label>Organization<select name="organization_id" id="employee-organization" required></select></label>
+              <label>Manager<select name="manager_id" id="employee-manager"></select></label>
+              <p id="employee-manager-help" class="muted small-text">Required for ICs. Optional for leaders.</p>
+              <label>Location<input name="location" /></label>
+              <label>Capacity<input name="capacity" type="number" step="0.1" min="0.1" value="1" /></label>
+              <button type="submit">Save Employee</button>
+            </form>
+          </div>
         </div>
       </section>
     </main>
