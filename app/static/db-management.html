@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Matrix Manager · DB Management</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>DB Management</h1>
+        <p>Create, edit, activate, and retire supported database connections.</p>
+      </div>
+      <nav>
+        <a href="/">Planning</a>
+        <a href="/people">Employees</a>
+        <a href="/staffing">Assignments</a>
+        <a href="/orgs">Organizations</a>
+        <a href="/canvas">Canvas</a>
+        <a href="/dashboard">Project Dashboard</a>
+        <form method="post" action="/logout" class="logout-form">
+          <button type="submit" class="logout-button">Logout</button>
+        </form>
+      </nav>
+    </header>
+
+    <main>
+      <section class="card single-column">
+        <div class="section-head">
+          <h2>Configured connections</h2>
+          <p>SQLite and PostgreSQL are supported. Activate one connection to make it the app’s live data backend.</p>
+        </div>
+        <div class="layout db-management-layout">
+          <div class="db-table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Summary</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="db-connection-table"></tbody>
+            </table>
+          </div>
+          <form id="db-connection-form" class="panel">
+            <h3 id="db-form-title">Add Connection</h3>
+            <input type="hidden" name="entity_id" id="db-connection-id" />
+            <label>Name<input name="name" id="db-name" required /></label>
+            <label>Database Type
+              <select name="db_type" id="db-type">
+                <option value="sqlite">SQLite</option>
+                <option value="postgresql">PostgreSQL</option>
+              </select>
+            </label>
+
+            <div id="sqlite-fields" class="db-type-fields">
+              <label>SQLite File Path<input name="sqlite_path" id="db-sqlite-path" placeholder="matrix.db" /></label>
+            </div>
+
+            <div id="postgres-fields" class="db-type-fields hidden">
+              <label>Host<input name="postgres_host" id="db-postgres-host" placeholder="localhost" /></label>
+              <label>Port<input name="postgres_port" id="db-postgres-port" type="number" value="5432" /></label>
+              <label>Database<input name="postgres_database" id="db-postgres-database" /></label>
+              <label>Username<input name="postgres_username" id="db-postgres-username" /></label>
+              <label>Password<input name="postgres_password" id="db-postgres-password" type="password" /></label>
+              <label>SSL Mode<input name="postgres_sslmode" id="db-postgres-sslmode" value="prefer" /></label>
+            </div>
+
+            <div class="panel-actions-row">
+              <button type="submit" id="db-submit">Save Connection</button>
+              <button type="button" class="secondary" id="db-clear-form">Clear Form</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="/static/db-management.js"></script>
+  </body>
+</html>

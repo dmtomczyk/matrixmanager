@@ -21,14 +21,21 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
 DB_PATH = ROOT_DIR / "matrix.db"
+CONTROL_DB_PATH = ROOT_DIR / "matrixmanager_control.db"
 STATIC_DIR = BASE_DIR / "static"
 SESSION_COOKIE_NAME = "matrixmanager_session"
 
 DATABASE_URL = f"sqlite:///{DB_PATH}"
+CONTROL_DATABASE_URL = f"sqlite:///{CONTROL_DB_PATH}"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},
 )
+control_engine = create_engine(
+    CONTROL_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+)
+engine_cache: dict[str, Any] = {}
 
 
 class OrganizationBase(SQLModel):
@@ -176,6 +183,49 @@ class AuditEntryRead(SQLModel):
     after_json: Optional[str]
 
 
+class DBConnectionBase(SQLModel):
+    name: str
+    db_type: str
+    sqlite_path: Optional[str] = None
+    postgres_host: Optional[str] = None
+    postgres_port: int = 5432
+    postgres_database: Optional[str] = None
+    postgres_username: Optional[str] = None
+    postgres_password: Optional[str] = None
+    postgres_sslmode: str = "prefer"
+
+
+class DBConnectionConfig(DBConnectionBase, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    is_active: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DBConnectionCreate(DBConnectionBase):
+    pass
+
+
+class DBConnectionUpdate(SQLModel):
+    name: Optional[str] = None
+    db_type: Optional[str] = None
+    sqlite_path: Optional[str] = None
+    postgres_host: Optional[str] = None
+    postgres_port: Optional[int] = None
+    postgres_database: Optional[str] = None
+    postgres_username: Optional[str] = None
+    postgres_password: Optional[str] = None
+    postgres_sslmode: Optional[str] = None
+
+
+class DBConnectionRead(DBConnectionBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    connection_summary: str
+
+
 app = FastAPI(title="Matrix Manager", version="0.1.0")
 
 app.add_middleware(
@@ -230,6 +280,8 @@ def render_app_nav(current_path: str, username: str) -> str:
         ("/dashboard", "Project Dashboard"),
         ("/audit", "Audit"),
     ]
+    if is_admin_username(username):
+        links.append(("/db-management", "DB Management"))
     rendered_links = []
     for href, label in links:
         class_name = "nav-link active" if href == current_path else "nav-link"
@@ -309,29 +361,162 @@ def build_login_page(error: str = "", next_path: str = "/") -> str:
 
 def is_html_request(request: Request) -> bool:
     accept = request.headers.get("accept", "")
-    return "text/html" in accept or request.url.path in {"/", "/people", "/staffing", "/orgs", "/canvas", "/dashboard", "/audit", "/docs", "/redoc"}
+    return "text/html" in accept or request.url.path in {"/", "/people", "/staffing", "/orgs", "/canvas", "/dashboard", "/audit", "/db-management", "/docs", "/redoc"}
 
 
-def create_db_and_tables() -> None:
-    SQLModel.metadata.create_all(engine)
+def create_db_and_tables(bind_engine=engine) -> None:
+    SQLModel.metadata.create_all(bind_engine)
 
 
-def run_migrations() -> None:
-    with engine.begin() as connection:
-        columns = connection.exec_driver_sql("PRAGMA table_info(employee)").fetchall()
+def run_migrations(bind_engine=engine) -> None:
+    engine_url = str(bind_engine.url)
+    with bind_engine.begin() as connection:
+        columns = connection.exec_driver_sql("PRAGMA table_info(employee)").fetchall() if engine_url.startswith("sqlite") else []
         column_names = {row[1] for row in columns}
-        if "manager_id" not in column_names:
-            connection.exec_driver_sql("ALTER TABLE employee ADD COLUMN manager_id INTEGER")
-        if "employee_type" not in column_names:
-            connection.exec_driver_sql("ALTER TABLE employee ADD COLUMN employee_type TEXT DEFAULT 'IC'")
-        connection.exec_driver_sql("UPDATE employee SET employee_type = 'IC' WHERE employee_type IS NULL OR employee_type = ''")
-        audit_tables = connection.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='auditentry'").fetchall()
-        if not audit_tables:
-            AuditEntry.__table__.create(bind=connection, checkfirst=True)
+        if engine_url.startswith("sqlite"):
+            if "manager_id" not in column_names:
+                connection.exec_driver_sql("ALTER TABLE employee ADD COLUMN manager_id INTEGER")
+            if "employee_type" not in column_names:
+                connection.exec_driver_sql("ALTER TABLE employee ADD COLUMN employee_type TEXT DEFAULT 'IC'")
+            connection.exec_driver_sql("UPDATE employee SET employee_type = 'IC' WHERE employee_type IS NULL OR employee_type = ''")
+        AuditEntry.__table__.create(bind=connection, checkfirst=True)
+        DBConnectionConfig.__table__.create(bind=connection, checkfirst=True)
+
+
+def get_control_session() -> Generator[Session, None, None]:
+    with Session(control_engine) as session:
+        yield session
+
+
+def build_connection_summary(connection: DBConnectionConfig) -> str:
+    if connection.db_type == "sqlite":
+        return connection.sqlite_path or "SQLite"
+    return f"{connection.postgres_host or 'localhost'}:{connection.postgres_port}/{connection.postgres_database or ''}"
+
+
+def serialize_db_connection(connection: DBConnectionConfig) -> DBConnectionRead:
+    return DBConnectionRead(
+        id=connection.id,
+        name=connection.name,
+        db_type=connection.db_type,
+        sqlite_path=connection.sqlite_path,
+        postgres_host=connection.postgres_host,
+        postgres_port=connection.postgres_port,
+        postgres_database=connection.postgres_database,
+        postgres_username=connection.postgres_username,
+        postgres_password=connection.postgres_password,
+        postgres_sslmode=connection.postgres_sslmode,
+        is_active=connection.is_active,
+        created_at=connection.created_at,
+        updated_at=connection.updated_at,
+        connection_summary=build_connection_summary(connection),
+    )
+
+
+def normalize_db_connection_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    db_type = (payload.get("db_type") or "").strip().lower()
+    if db_type not in {"sqlite", "postgresql"}:
+        raise HTTPException(status_code=400, detail="Database type must be sqlite or postgresql")
+    payload["db_type"] = db_type
+    payload["name"] = (payload.get("name") or "").strip()
+    if not payload["name"]:
+        raise HTTPException(status_code=400, detail="Connection name is required")
+    if db_type == "sqlite":
+        sqlite_path = (payload.get("sqlite_path") or "").strip()
+        if not sqlite_path:
+            raise HTTPException(status_code=400, detail="SQLite path is required")
+        payload.update({
+            "sqlite_path": sqlite_path,
+            "postgres_host": None,
+            "postgres_database": None,
+            "postgres_username": None,
+            "postgres_password": None,
+            "postgres_sslmode": "prefer",
+            "postgres_port": 5432,
+        })
+    else:
+        host = (payload.get("postgres_host") or "").strip()
+        database = (payload.get("postgres_database") or "").strip()
+        username = (payload.get("postgres_username") or "").strip()
+        password = payload.get("postgres_password") or ""
+        if not host or not database or not username:
+            raise HTTPException(status_code=400, detail="PostgreSQL host, database, and username are required")
+        payload.update({
+            "sqlite_path": None,
+            "postgres_host": host,
+            "postgres_database": database,
+            "postgres_username": username,
+            "postgres_password": password,
+            "postgres_sslmode": (payload.get("postgres_sslmode") or "prefer").strip() or "prefer",
+            "postgres_port": int(payload.get("postgres_port") or 5432),
+        })
+    return payload
+
+
+def build_database_url(connection: DBConnectionConfig) -> str:
+    if connection.db_type == "sqlite":
+        sqlite_path = Path(connection.sqlite_path or "matrix.db").expanduser()
+        if not sqlite_path.is_absolute():
+            sqlite_path = ROOT_DIR / sqlite_path
+        return f"sqlite:///{sqlite_path}"
+    username = connection.postgres_username or ""
+    password = connection.postgres_password or ""
+    auth = username
+    if password:
+        auth = f"{username}:{password}"
+    return f"postgresql+psycopg://{auth}@{connection.postgres_host}:{connection.postgres_port}/{connection.postgres_database}?sslmode={connection.postgres_sslmode or 'prefer'}"
+
+
+def get_or_create_data_engine(connection: DBConnectionConfig):
+    global engine
+    database_url = build_database_url(connection)
+    if database_url in engine_cache:
+        engine = engine_cache[database_url]
+        return engine
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    built_engine = create_engine(database_url, connect_args=connect_args)
+    create_db_and_tables(built_engine)
+    run_migrations(built_engine)
+    engine_cache[database_url] = built_engine
+    engine = built_engine
+    return built_engine
+
+
+def ensure_default_db_connection() -> None:
+    with Session(control_engine) as session:
+        existing = session.exec(select(DBConnectionConfig).order_by(DBConnectionConfig.id)).all()
+        if existing:
+            if not any(item.is_active for item in existing):
+                existing[0].is_active = True
+                existing[0].updated_at = datetime.now(timezone.utc)
+                session.add(existing[0])
+                session.commit()
+            return
+        default_connection = DBConnectionConfig(
+            name="Local SQLite",
+            db_type="sqlite",
+            sqlite_path=str(DB_PATH),
+            is_active=True,
+        )
+        session.add(default_connection)
+        session.commit()
+
+
+def get_active_db_connection_config() -> DBConnectionConfig:
+    with Session(control_engine) as session:
+        connection = session.exec(select(DBConnectionConfig).where(DBConnectionConfig.is_active == True)).first()
+        if connection:
+            return connection
+        fallback = session.exec(select(DBConnectionConfig).order_by(DBConnectionConfig.id)).first()
+        if not fallback:
+            raise HTTPException(status_code=500, detail="No database connections configured")
+        return fallback
 
 
 def get_session() -> Generator[Session, None, None]:
-    with Session(engine) as session:
+    active_connection = get_active_db_connection_config()
+    data_engine = get_or_create_data_engine(active_connection)
+    with Session(data_engine) as session:
         yield session
 
 
@@ -352,7 +537,7 @@ def is_admin_username(username: Optional[str]) -> bool:
 def require_admin_user(request: Request) -> str:
     username = get_request_username(request)
     if not is_admin_username(username):
-        raise HTTPException(status_code=403, detail="Only the admin user can modify audit history")
+        raise HTTPException(status_code=403, detail="Only the admin user can perform this action")
     return username
 
 
@@ -456,8 +641,12 @@ def serve_html_page(
 @app.on_event("startup")
 def on_startup() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    create_db_and_tables()
-    run_migrations()
+    CONTROL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    create_db_and_tables(control_engine)
+    run_migrations(control_engine)
+    ensure_default_db_connection()
+    active_connection = get_active_db_connection_config()
+    get_or_create_data_engine(active_connection)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -610,6 +799,22 @@ def serve_audit_page(request: Request) -> str:
             'src="/static/audit.js"': f'src="{static_asset_url("audit.js")}"',
             'data-is-admin="false"': f'data-is-admin="{"true" if is_admin_username(username) else "false"}"',
             'data-current-user=""': f'data-current-user="{username or ""}"',
+        },
+        current_path=request.url.path,
+        username=username,
+    )
+
+
+@app.get("/db-management", response_class=HTMLResponse)
+def serve_db_management_page(request: Request) -> str:
+    username = get_session_username(request.cookies.get(SESSION_COOKIE_NAME))
+    if not is_admin_username(username):
+        raise HTTPException(status_code=403, detail="Only admin can manage database connections")
+    return serve_html_page(
+        "db-management.html",
+        {
+            'href="/static/styles.css"': f'href="{static_asset_url("styles.css")}"',
+            'src="/static/db-management.js"': f'src="{static_asset_url("db-management.js")}"',
         },
         current_path=request.url.path,
         username=username,
@@ -1226,3 +1431,75 @@ def clear_audit_log(request: Request, session: Session = Depends(get_session)):
         entity_label="Audit history",
         after={"removed_entries": removed_count},
     )
+
+
+@app.get("/db-connections", response_model=List[DBConnectionRead])
+def list_db_connections(request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    items = session.exec(select(DBConnectionConfig).order_by(DBConnectionConfig.name)).all()
+    return [serialize_db_connection(item) for item in items]
+
+
+@app.post("/db-connections", response_model=DBConnectionRead, status_code=201)
+def create_db_connection(connection: DBConnectionCreate, request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    payload = normalize_db_connection_payload(connection.model_dump())
+    db_connection = DBConnectionConfig(**payload)
+    if not session.exec(select(DBConnectionConfig)).first():
+        db_connection.is_active = True
+    session.add(db_connection)
+    session.commit()
+    session.refresh(db_connection)
+    if db_connection.is_active:
+        get_or_create_data_engine(db_connection)
+    return serialize_db_connection(db_connection)
+
+
+@app.put("/db-connections/{connection_id}", response_model=DBConnectionRead)
+def update_db_connection(connection_id: int, update: DBConnectionUpdate, request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    db_connection = session.get(DBConnectionConfig, connection_id)
+    if not db_connection:
+        raise HTTPException(status_code=404, detail="Database connection not found")
+    current = db_connection.model_dump()
+    for key, value in update.model_dump(exclude_unset=True).items():
+        current[key] = value
+    payload = normalize_db_connection_payload(current)
+    for key, value in payload.items():
+        setattr(db_connection, key, value)
+    db_connection.updated_at = datetime.now(timezone.utc)
+    session.add(db_connection)
+    session.commit()
+    session.refresh(db_connection)
+    if db_connection.is_active:
+        get_or_create_data_engine(db_connection)
+    return serialize_db_connection(db_connection)
+
+
+@app.post("/db-connections/{connection_id}/activate", response_model=DBConnectionRead)
+def activate_db_connection(connection_id: int, request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    db_connection = session.get(DBConnectionConfig, connection_id)
+    if not db_connection:
+        raise HTTPException(status_code=404, detail="Database connection not found")
+    all_connections = session.exec(select(DBConnectionConfig)).all()
+    for item in all_connections:
+        item.is_active = item.id == connection_id
+        item.updated_at = datetime.now(timezone.utc)
+        session.add(item)
+    session.commit()
+    session.refresh(db_connection)
+    get_or_create_data_engine(db_connection)
+    return serialize_db_connection(db_connection)
+
+
+@app.delete("/db-connections/{connection_id}", status_code=204)
+def delete_db_connection(connection_id: int, request: Request, session: Session = Depends(get_control_session)):
+    require_admin_user(request)
+    db_connection = session.get(DBConnectionConfig, connection_id)
+    if not db_connection:
+        raise HTTPException(status_code=404, detail="Database connection not found")
+    if db_connection.is_active:
+        raise HTTPException(status_code=400, detail="Cannot delete the active database connection")
+    session.delete(db_connection)
+    session.commit()

@@ -14,6 +14,7 @@ A lightweight resource planning MVP that lets you keep track of employees, proje
 - **Allocation watchdog** – A Chart.js line chart overlays time-phased allocation vs. capacity (choose presets or custom ranges) and highlights >100% overloads.
 - **REST API** – FastAPI automatically exposes OpenAPI docs at `/docs` for programmatic integrations.
 - **Login page auth** – The entire site and API are protected behind an app login page backed by env-configured credentials and a signed session cookie.
+- **DB Management** – Admins can manage SQLite and PostgreSQL connection profiles, then activate one as the live app backend from `/db-management`.
 - **SQLite persistence** – Default database lives in `matrixmanager/matrix.db`, making it trivial to back up or inspect.
 
 ## Project layout
@@ -61,6 +62,10 @@ matrixmanager/
    - `/assignments` → assignment CRUD and CSV export
    - `/orgs` → organization management
    - `/canvas` → visual staffing canvas
+   - `/audit` → full change history with filters/export
+   - `/db-management` → admin-only database connection management and activation
+
+For PostgreSQL connectors, install the Python dependencies from `requirements.txt` so the bundled `psycopg` driver is available.
 
 ## API cheat sheet
 

@@ -369,6 +369,20 @@ main {
   color: var(--muted);
 }
 
+.db-management-layout {
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+}
+
+.db-table-shell {
+  overflow: auto;
+}
+
+.db-type-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 @media (max-width: 640px) {
   header {
     grid-template-columns: 1fr;
