@@ -20,10 +20,18 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent
-DB_PATH = ROOT_DIR / "matrix.db"
-CONTROL_DB_PATH = ROOT_DIR / "matrixmanager_control.db"
+DB_PATH = Path(os.getenv("MATRIX_SQLITE_PATH", str(ROOT_DIR / "matrix.db"))).expanduser()
+CONTROL_DB_PATH = Path(os.getenv("MATRIX_CONTROL_DB_PATH", str(ROOT_DIR / "matrixmanager_control.db"))).expanduser()
 STATIC_DIR = BASE_DIR / "static"
 SESSION_COOKIE_NAME = "matrixmanager_session"
+MATRIX_INSTALL_MODE = os.getenv("MATRIX_INSTALL_MODE", "sqlite").strip().lower()
+MATRIX_ACTIVE_DB_TYPE = os.getenv("MATRIX_ACTIVE_DB_TYPE", MATRIX_INSTALL_MODE).strip().lower()
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "postgres")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "matrixmanager")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "matrixmanager")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "")
+POSTGRES_SSLMODE = os.getenv("POSTGRES_SSLMODE", "prefer")
 
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 CONTROL_DATABASE_URL = f"sqlite:///{CONTROL_DB_PATH}"
@@ -482,23 +490,67 @@ def get_or_create_data_engine(connection: DBConnectionConfig):
     return built_engine
 
 
+def build_bootstrap_connection() -> DBConnectionConfig:
+    if MATRIX_ACTIVE_DB_TYPE == "postgresql":
+        return DBConnectionConfig(
+            name="Bundled PostgreSQL",
+            db_type="postgresql",
+            postgres_host=POSTGRES_HOST,
+            postgres_port=POSTGRES_PORT,
+            postgres_database=POSTGRES_DB,
+            postgres_username=POSTGRES_USER,
+            postgres_password=POSTGRES_PASSWORD,
+            postgres_sslmode=POSTGRES_SSLMODE,
+            is_active=True,
+        )
+    return DBConnectionConfig(
+        name="Local SQLite",
+        db_type="sqlite",
+        sqlite_path=str(DB_PATH),
+        is_active=True,
+    )
+
+
 def ensure_default_db_connection() -> None:
+    bootstrap_connection = build_bootstrap_connection()
     with Session(control_engine) as session:
         existing = session.exec(select(DBConnectionConfig).order_by(DBConnectionConfig.id)).all()
         if existing:
-            if not any(item.is_active for item in existing):
-                existing[0].is_active = True
-                existing[0].updated_at = datetime.now(timezone.utc)
-                session.add(existing[0])
-                session.commit()
+            active_matches_bootstrap = False
+            for item in existing:
+                should_be_active = False
+                if bootstrap_connection.db_type == "sqlite":
+                    should_be_active = item.db_type == "sqlite" and (item.sqlite_path or "") == (bootstrap_connection.sqlite_path or "")
+                else:
+                    should_be_active = (
+                        item.db_type == "postgresql"
+                        and (item.postgres_host or "") == (bootstrap_connection.postgres_host or "")
+                        and int(item.postgres_port or 5432) == int(bootstrap_connection.postgres_port or 5432)
+                        and (item.postgres_database or "") == (bootstrap_connection.postgres_database or "")
+                        and (item.postgres_username or "") == (bootstrap_connection.postgres_username or "")
+                    )
+                if should_be_active:
+                    item.is_active = True
+                    item.updated_at = datetime.now(timezone.utc)
+                    session.add(item)
+                    active_matches_bootstrap = True
+                elif item.is_active and MATRIX_INSTALL_MODE in {"sqlite", "postgresql"}:
+                    item.is_active = False
+                    item.updated_at = datetime.now(timezone.utc)
+                    session.add(item)
+            if not active_matches_bootstrap:
+                bootstrap_connection.updated_at = datetime.now(timezone.utc)
+                session.add(bootstrap_connection)
+            session.commit()
+            if not any(item.is_active for item in session.exec(select(DBConnectionConfig)).all()):
+                first = session.exec(select(DBConnectionConfig).order_by(DBConnectionConfig.id)).first()
+                if first:
+                    first.is_active = True
+                    first.updated_at = datetime.now(timezone.utc)
+                    session.add(first)
+                    session.commit()
             return
-        default_connection = DBConnectionConfig(
-            name="Local SQLite",
-            db_type="sqlite",
-            sqlite_path=str(DB_PATH),
-            is_active=True,
-        )
-        session.add(default_connection)
+        session.add(bootstrap_connection)
         session.commit()
 
 
@@ -654,7 +706,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.middleware("http")
 async def require_login(request: Request, call_next):
-    public_paths = {"/login"}
+    public_paths = {"/login", "/health"}
     if request.url.path in public_paths:
         return await call_next(request)
     if request.url.path.startswith("/static/"):
@@ -664,6 +716,15 @@ async def require_login(request: Request, call_next):
     if is_html_request(request):
         return RedirectResponse(url=f"/login?next={quote(str(request.url.path))}", status_code=302)
     raise HTTPException(status_code=401, detail="Authentication required")
+
+
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "install_mode": MATRIX_INSTALL_MODE,
+        "active_db_type": MATRIX_ACTIVE_DB_TYPE,
+    }
 
 
 @app.get("/login", response_class=HTMLResponse)
