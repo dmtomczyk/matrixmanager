@@ -314,7 +314,7 @@ table tbody tr:hover {
 
 .header-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: flex-end;
   flex-wrap: wrap;
 }
@@ -335,6 +335,16 @@ table tbody tr:hover {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+}
+
+.compact-toolbar-button {
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.1;
+  min-height: 32px;
+  white-space: nowrap;
 }
 
 .assignment-graph-panel {
@@ -634,8 +644,8 @@ body.org-page .org-shell {
 .employee-name-cell {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 24px;
 }
 
 .employee-name-row {
@@ -659,30 +669,30 @@ body.org-page .org-shell {
 .hierarchy-toggle {
   border: 1px solid transparent;
   background: transparent;
-  color: #475569;
+  color: #64748b;
   padding: 0;
   line-height: 1;
   flex: 0 0 auto;
 }
 
 .hierarchy-toggle-small {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-right: 2px;
+  margin-right: 1px;
 }
 
 .hierarchy-toggle-small .chevron {
-  font-size: 11px;
+  font-size: 10px;
   transform: translateY(-0.5px);
 }
 
 .hierarchy-toggle:hover {
-  border-color: var(--border);
-  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.15);
+  background: rgba(59, 130, 246, 0.04);
   color: var(--primary);
 }
 
@@ -695,9 +705,9 @@ body.org-page .org-shell {
 }
 
 .hierarchy-leaf-small {
-  width: 16px;
-  height: 16px;
-  font-size: 10px;
+  width: 14px;
+  height: 14px;
+  font-size: 9px;
 }
 
 .link-button {
@@ -706,7 +716,7 @@ body.org-page .org-shell {
   border: none;
   padding: 0;
   border-radius: 0;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
