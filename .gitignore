@@ -4,3 +4,4 @@ node_modules/
 playwright-report/
 */__pycache__/
 test-results/
+.venv/
