@@ -592,3 +592,51 @@ body.org-page .org-shell {
 .filter-control select {
   min-width: 200px;
 }
+
+.hierarchy-table {
+  width: 100%;
+}
+
+.employee-name-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.employee-name-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.employee-subtle {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.hierarchy-toggle {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+  padding: 0;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.hierarchy-toggle:hover {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.hierarchy-leaf {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  flex: 0 0 auto;
+}
