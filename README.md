@@ -221,6 +221,27 @@ The README previously documented these core resource families, which still match
 
 In practice, the current backend also includes auth, audit, and DB-management related behavior surfaced through the app.
 
+## Lifecycle scripts
+
+For the containerized beta workflow:
+
+```bash
+cd matrixmanager
+./install.sh
+./start.sh
+./stop.sh
+./status.sh
+./reset.sh
+./uninstall.sh
+```
+
+- `install.sh` — guided install/bootstrap and `.env` generation
+- `start.sh` — start the Compose stack with the correct profile
+- `stop.sh` — stop the stack while preserving data
+- `status.sh` — show Compose status plus a host-side health probe
+- `reset.sh` — wipe Matrix Manager data while keeping config/scripts
+- `uninstall.sh` — remove runtime, with an option to keep or delete all data
+
 ## Development scripts
 
 ### Reset the database
